@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import '../../core/constants/app_colors.dart';
+import '../../providers/library_provider.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/player_provider.dart';
 
@@ -146,6 +147,14 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
       if (player.onlineSubtitles.isEmpty && !player.isSearchingOnlineSubtitles) {
         player.searchOnlineSubtitles(q, lang: _selectedSubLang);
       }
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted && _showSubtitlesPopover) {
+          _searchFocusNode.requestFocus();
+        }
+      });
+    } else {
+      _searchFocusNode.unfocus();
+      _focusNode.requestFocus();
     }
     _onUserActivity();
   }
@@ -155,6 +164,13 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
       _showEpisodesDrawer = !_showEpisodesDrawer;
       _showSettingsPopover = false;
       _showSubtitlesPopover = false;
+      if (_showEpisodesDrawer) {
+        final player = context.read<PlayerProvider>();
+        final currSeason = player.currentMedia?.seasonNumber;
+        if (currSeason != null) {
+          _selectedSeason = currSeason;
+        }
+      }
     });
     _onUserActivity();
   }
@@ -194,6 +210,15 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: (node, event) {
+          if (_searchFocusNode.hasFocus) {
+            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+              setState(() => _showSubtitlesPopover = false);
+              _searchFocusNode.unfocus();
+              _focusNode.requestFocus();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          }
           if (event is KeyDownEvent) {
             _onUserActivity();
             if (event.logicalKey == LogicalKeyboardKey.space) {
@@ -665,24 +690,7 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                                   const SizedBox(width: 10),
                                 ],
 
-                                // Picture-in-Picture Button
-                                _buildBarIconButton(
-                                  icon: Icons.picture_in_picture_alt_rounded,
-                                  tooltip: isArabic ? 'صورة داخل صورة' : 'Picture in Picture',
-                                  onPressed: () {
-                                    // PiP trigger
-                                    _triggerSeekOsd(isArabic ? 'صورة داخل صورة' : 'PiP');
-                                  },
-                                ),
-                                const SizedBox(width: 10),
 
-                                // Server / Stream Source Button
-                                _buildBarIconButton(
-                                  icon: Icons.cloud_outlined,
-                                  tooltip: isArabic ? 'السيرفر ومصدر البث' : 'Streaming Server',
-                                  onPressed: _toggleSettingsPopover,
-                                ),
-                                const SizedBox(width: 10),
 
                                 // Subtitles Button (CC) - Active white circle when open
                                 _buildBarIconButton(
@@ -1651,33 +1659,55 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                 Container(
                   height: 38,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
+                    color: Colors.white.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white12, width: 0.8),
+                    border: Border.all(
+                      color: _searchFocusNode.hasFocus
+                          ? const Color(0xFF76B900)
+                          : Colors.white24,
+                      width: 1,
+                    ),
                   ),
                   child: TextField(
                     controller: _subSearchController,
                     focusNode: _searchFocusNode,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    cursorColor: Colors.white,
+                    textInputAction: TextInputAction.search,
                     decoration: InputDecoration(
-                      hintText: isArabic ? 'بحث في الترجمات...' : 'Search',
+                      hintText: isArabic ? 'بحث في الترجمات...' : 'Search subtitles...',
                       hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                       prefixIcon: const Icon(Icons.search_rounded, color: Colors.white54, size: 18),
-                      suffixIcon: _subSearchController.text.isNotEmpty
-                          ? IconButton(
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_subSearchController.text.isNotEmpty)
+                            IconButton(
                               icon: const Icon(Icons.clear_rounded, color: Colors.white54, size: 16),
                               onPressed: () {
                                 _subSearchController.clear();
                                 setState(() {});
                               },
-                            )
-                          : null,
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF76B900), size: 18),
+                            tooltip: isArabic ? 'بحث' : 'Search',
+                            onPressed: () {
+                              final query = _subSearchController.text.trim();
+                              if (query.isNotEmpty) {
+                                player.searchOnlineSubtitles(query, lang: _selectedSubLang);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
                     ),
+                    onChanged: (text) => setState(() {}),
                     onSubmitted: (query) {
                       if (query.trim().isNotEmpty) {
-                        player.searchOnlineSubtitles(query, lang: _selectedSubLang);
+                        player.searchOnlineSubtitles(query.trim(), lang: _selectedSubLang);
                       }
                     },
                   ),
@@ -1810,9 +1840,29 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
 
   // --- 3. HORIZONTAL EPISODE DRAWER (Matches Image 4 100%) ---
   Widget _buildEpisodesDrawer(PlayerProvider player, bool isArabic) {
-    final allEpisodes = player.seriesEpisodes;
+    final library = context.read<LibraryProvider>();
+    var allEpisodes = player.seriesEpisodes;
+    if (allEpisodes.isEmpty && player.currentMedia != null) {
+      final sTitle = player.currentMedia?.seriesTitle ?? player.currentMedia?.title;
+      if (sTitle != null) {
+        allEpisodes = library.seriesGrouped[sTitle] ?? [];
+        if (allEpisodes.isEmpty) {
+          for (final entry in library.seriesGrouped.entries) {
+            if (entry.key.toLowerCase().trim() == sTitle.toLowerCase().trim()) {
+              allEpisodes = entry.value;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     final seasons = allEpisodes.map((e) => e.seasonNumber ?? 1).toSet().toList()..sort();
-    final currentSeason = seasons.contains(_selectedSeason) ? _selectedSeason : (seasons.isNotEmpty ? seasons.first : 1);
+    final currentSeason = seasons.contains(_selectedSeason)
+        ? _selectedSeason
+        : (player.currentMedia?.seasonNumber != null && seasons.contains(player.currentMedia!.seasonNumber!)
+            ? player.currentMedia!.seasonNumber!
+            : (seasons.isNotEmpty ? seasons.first : 1));
     final seasonEpisodes = allEpisodes.where((e) => (e.seasonNumber ?? 1) == currentSeason).toList();
 
     return ClipRRect(
@@ -1926,7 +1976,11 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
 
                           return InkWell(
                             onTap: () {
-                              player.playMedia(ep);
+                              final epIdx = seasonEpisodes.indexOf(ep);
+                              final nextEp = (epIdx != -1 && epIdx < seasonEpisodes.length - 1)
+                                  ? seasonEpisodes[epIdx + 1]
+                                  : null;
+                              player.openMedia(ep, nextEp: nextEp, seriesEpisodes: allEpisodes);
                               _onUserActivity();
                             },
                             borderRadius: BorderRadius.circular(10),

@@ -63,7 +63,7 @@ class _SeriesDetailsDialogState extends State<SeriesDetailsDialog> {
       nextEp = sortedEps[idx + 1];
     }
 
-    player.openMedia(episode, nextEp: nextEp);
+    player.openMedia(episode, nextEp: nextEp, seriesEpisodes: widget.episodes);
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const PlayerView()),
     );

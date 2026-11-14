@@ -75,21 +75,37 @@ class _HomeViewState extends State<HomeView> {
     final player = context.read<PlayerProvider>();
 
     var targetNext = nextEp;
-    if (targetNext == null && item.type == MediaType.seriesEpisode && item.seriesTitle != null) {
-      final eps = library.seriesGrouped[item.seriesTitle] ?? [];
-      final sortedEps = List<MediaItem>.from(eps)
-        ..sort((a, b) {
-          final sComp = (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0);
-          if (sComp != 0) return sComp;
-          return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
-        });
-      final idx = sortedEps.indexWhere((e) => e.filePath == item.filePath);
-      if (idx != -1 && idx < sortedEps.length - 1) {
-        targetNext = sortedEps[idx + 1];
+    List<MediaItem> allSeriesEps = [];
+    final isSeries = item.type == MediaType.seriesEpisode || item.seriesTitle != null || item.seasonNumber != null;
+    if (isSeries) {
+      final sTitle = item.seriesTitle ?? item.title;
+      allSeriesEps = library.seriesGrouped[sTitle] ?? [];
+      if (allSeriesEps.isEmpty && item.seriesTitle != null) {
+        for (final entry in library.seriesGrouped.entries) {
+          if (entry.key.toLowerCase().trim() == item.seriesTitle!.toLowerCase().trim()) {
+            allSeriesEps = entry.value;
+            break;
+          }
+        }
+      }
+      if (allSeriesEps.isNotEmpty) {
+        final sortedEps = List<MediaItem>.from(allSeriesEps)
+          ..sort((a, b) {
+            final sComp = (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0);
+            if (sComp != 0) return sComp;
+            return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
+          });
+        allSeriesEps = sortedEps;
+        if (targetNext == null) {
+          final idx = sortedEps.indexWhere((e) => e.filePath == item.filePath);
+          if (idx != -1 && idx < sortedEps.length - 1) {
+            targetNext = sortedEps[idx + 1];
+          }
+        }
       }
     }
 
-    player.openMedia(item, nextEp: targetNext);
+    player.openMedia(item, nextEp: targetNext, seriesEpisodes: allSeriesEps);
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const PlayerView()),
     );

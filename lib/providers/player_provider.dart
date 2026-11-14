@@ -90,7 +90,8 @@ class PlayerProvider extends ChangeNotifier {
     return '1080p';
   }
 
-  Future<void> playMedia(MediaItem item) => openMedia(item);
+  Future<void> playMedia(MediaItem item, {MediaItem? nextEp, List<MediaItem>? seriesEpisodes}) =>
+      openMedia(item, nextEp: nextEp, seriesEpisodes: seriesEpisodes);
 
   String get audioTrackLabel {
     if (_selectedAudioTrack != null) {
@@ -393,21 +394,43 @@ class PlayerProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> openMedia(MediaItem item, {MediaItem? nextEp}) async {
+  Future<void> openMedia(
+    MediaItem item, {
+    MediaItem? nextEp,
+    List<MediaItem>? seriesEpisodes,
+  }) async {
     _currentMedia = item;
     _nextEpisode = nextEp;
     _showNextEpisodePrompt = false;
     _countdownTimer?.cancel();
     _onlineSubtitles = [];
-    _seriesEpisodes = [];
+    _seriesEpisodes = (seriesEpisodes != null && seriesEpisodes.isNotEmpty)
+        ? List<MediaItem>.from(seriesEpisodes)
+        : [];
     _subtitleDelay = 0.0;
     _playbackRate = 1.0;
     _buffer = Duration.zero;
     notifyListeners();
 
-    // Auto-discover next episode if not explicitly passed
-    if (_nextEpisode == null && (item.type == MediaType.seriesEpisode || item.seasonNumber != null)) {
-      await _autoDiscoverNextEpisode(item);
+    // Auto-discover episodes & next episode if series
+    final isSeries = item.type == MediaType.seriesEpisode || item.seasonNumber != null || item.seriesTitle != null;
+    if (isSeries) {
+      if (_seriesEpisodes.isEmpty) {
+        await _autoDiscoverNextEpisode(item);
+      } else if (_nextEpisode == null) {
+        String norm(String p) => p.replaceAll('\\', '/').trim().toLowerCase();
+        final itemNormPath = norm(item.filePath);
+        int idx = _seriesEpisodes.indexWhere((e) => norm(e.filePath) == itemNormPath);
+        if (idx == -1 && item.seasonNumber != null && item.episodeNumber != null) {
+          idx = _seriesEpisodes.indexWhere((e) =>
+              e.seasonNumber == item.seasonNumber &&
+              e.episodeNumber == item.episodeNumber);
+        }
+        if (idx != -1 && idx < _seriesEpisodes.length - 1) {
+          _nextEpisode = _seriesEpisodes[idx + 1];
+          notifyListeners();
+        }
+      }
     }
 
     // 1. Fetch fresh record from SQLite to get exact resume point
@@ -475,7 +498,7 @@ class PlayerProvider extends ChangeNotifier {
       final itemNormPath = norm(item.filePath);
 
       // Match episodes belonging to this series
-      final seriesEps = allEps
+      var seriesEps = allEps
           .where((e) {
             final eSeries = (e.seriesTitle ?? e.title).trim().toLowerCase();
             final targetSeries = sTitle.trim().toLowerCase();
@@ -483,12 +506,22 @@ class PlayerProvider extends ChangeNotifier {
                    eSeries.contains(targetSeries) ||
                    targetSeries.contains(eSeries);
           })
-          .toList()
-        ..sort((a, b) {
-          final sComp = (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0);
-          if (sComp != 0) return sComp;
-          return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
-        });
+          .toList();
+
+      // If nothing matched by seriesTitle, try matching by parent directory
+      if (seriesEps.isEmpty) {
+        final parentDir = File(item.filePath).parent.path.replaceAll('\\', '/').toLowerCase();
+        seriesEps = allEps.where((e) {
+          final eParent = File(e.filePath).parent.path.replaceAll('\\', '/').toLowerCase();
+          return eParent == parentDir;
+        }).toList();
+      }
+
+      seriesEps.sort((a, b) {
+        final sComp = (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0);
+        if (sComp != 0) return sComp;
+        return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
+      });
 
       if (seriesEps.isEmpty) return;
       _seriesEpisodes = seriesEps;
@@ -501,10 +534,10 @@ class PlayerProvider extends ChangeNotifier {
             e.episodeNumber == item.episodeNumber);
       }
 
-      if (idx != -1 && idx < seriesEps.length - 1) {
+      if (idx != -1 && idx < seriesEps.length - 1 && _nextEpisode == null) {
         _nextEpisode = seriesEps[idx + 1];
-        notifyListeners();
       }
+      notifyListeners();
     } catch (_) {}
   }
 
