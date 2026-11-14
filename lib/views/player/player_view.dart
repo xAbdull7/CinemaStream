@@ -453,45 +453,89 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                                     },
                                   ),
                                 ),
-                              if (player.isRtxVsrActive)
+                              if (player.hasRtxGpu)
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 6),
                                   child: Tooltip(
-                                    message: isArabic
-                                        ? 'تقنية تحسين الفيديو بالذكاء الاصطناعي نشطة (NVIDIA RTX VSR)'
-                                        : 'NVIDIA RTX Video Super Resolution Active (AI Upscaled)',
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF76B900).withOpacity(0.18),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: const Color(0xFF76B900).withOpacity(0.85),
-                                          width: 1.2,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF76B900).withOpacity(0.4),
-                                            blurRadius: 10,
-                                            spreadRadius: 1,
-                                          ),
-                                        ],
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.bolt_rounded, color: Color(0xFF76B900), size: 15),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'RTX VSR',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w900,
-                                              letterSpacing: 0.8,
+                                    message: player.isRtxVsrActive
+                                        ? (isArabic
+                                            ? 'انقر للتعطيل • تحسين RTX والحدة الفائقة نشط حالياً'
+                                            : 'Click to Disable • RTX AI Super Resolution & Sharpening Active')
+                                        : (isArabic
+                                            ? 'انقر للتفعيل • تشغيل معالجة RTX والحدة الفائقة'
+                                            : 'Click to Enable • Turn on RTX AI Super Resolution & Sharpening'),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () {
+                                          player.toggleRtxVsr();
+                                          _onUserActivity();
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  Icon(
+                                                    player.isRtxVsrActive ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                                                    color: player.isRtxVsrActive ? const Color(0xFF76B900) : Colors.white70,
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Text(
+                                                    player.isRtxVsrActive
+                                                        ? (isArabic ? 'تم تفعيل معالجة RTX فائقة الحدة' : 'RTX AI Super Resolution & Sharpening Enabled')
+                                                        : (isArabic ? 'تم إيقاف معالجة RTX' : 'RTX AI Processing Disabled'),
+                                                  ),
+                                                ],
+                                              ),
+                                              backgroundColor: const Color(0xFF1E1E24),
+                                              duration: const Duration(seconds: 2),
                                             ),
+                                          );
+                                        },
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: player.isRtxVsrActive
+                                                ? const Color(0xFF76B900).withOpacity(0.2)
+                                                : Colors.white.withOpacity(0.06),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: player.isRtxVsrActive
+                                                  ? const Color(0xFF76B900).withOpacity(0.85)
+                                                  : Colors.white24,
+                                              width: 1.2,
+                                            ),
+                                            boxShadow: player.isRtxVsrActive
+                                                ? [
+                                                    BoxShadow(
+                                                      color: const Color(0xFF76B900).withOpacity(0.4),
+                                                      blurRadius: 10,
+                                                      spreadRadius: 1,
+                                                    ),
+                                                  ]
+                                                : null,
                                           ),
-                                        ],
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.bolt_rounded,
+                                                color: player.isRtxVsrActive ? const Color(0xFF76B900) : Colors.white38,
+                                                size: 15,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                player.isRtxVsrActive ? 'RTX VSR' : 'RTX OFF',
+                                                style: TextStyle(
+                                                  color: player.isRtxVsrActive ? Colors.white : Colors.white54,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w900,
+                                                  letterSpacing: 0.8,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),

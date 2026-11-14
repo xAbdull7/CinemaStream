@@ -129,15 +129,23 @@ class PlayerProvider extends ChangeNotifier {
         await setMpvProperty('d3d11-adapter', 'NVIDIA');
         // Direct3D 11 Video Processor with NVIDIA RTX Video Super Resolution
         await setMpvProperty('vf', 'd3d11vpp=scale=2:scaling-mode=nvidia');
+        // High-precision GPU upscaling & adaptive sharpness
+        await setMpvProperty('scale', 'ewa_lanczossharp');
+        await setMpvProperty('cscale', 'spline36');
+        await setMpvProperty('sharpen', '1.2');
         _isRtxVsrActive = true;
       } catch (_) {
         await setMpvProperty('hwdec', 'auto-safe');
         await setMpvProperty('vf', '');
+        await setMpvProperty('scale', 'bilinear');
+        await setMpvProperty('sharpen', '0.0');
         _isRtxVsrActive = false;
       }
     } else {
       await setMpvProperty('hwdec', 'auto-safe');
       await setMpvProperty('vf', '');
+      await setMpvProperty('scale', 'bilinear');
+      await setMpvProperty('sharpen', '0.0');
       _isRtxVsrActive = false;
     }
     notifyListeners();
