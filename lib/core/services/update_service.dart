@@ -28,7 +28,7 @@ class ReleaseInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.1.0';
+  static const String currentVersion = '1.3.0';
   static const String repoOwner = 'xAbdull7';
   static const String repoName = 'CinemaStream';
   static const String apiUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases/latest';
@@ -214,19 +214,24 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       if (!mounted) return;
 
       setState(() {
-        _statusMessage = 'اكتمل التحميل! جاري تشغيل التثبيت وإعادة التشغيل...';
+        _statusMessage = 'اكتمل التحميل! جاري دمج التحديث وإعادة تشغيل التطبيق تلقائياً...';
       });
 
       await Future.delayed(const Duration(milliseconds: 600));
 
-      // Launch installer detached
+      // Launch installer completely silently in background (No wizard, no next/finish, auto-relaunch)
       await Process.start(
         targetFile.path,
-        ['/CLOSEAPPLICATIONS'],
+        [
+          '/VERYSILENT',
+          '/SUPPRESSMSGBOXES',
+          '/NORESTART',
+          '/CLOSEAPPLICATIONS',
+        ],
         mode: ProcessStartMode.detached,
       );
 
-      // Close the current application gracefully
+      // Close the current application gracefully so installer can overwrite and relaunch
       exit(0);
     } catch (e) {
       if (mounted) {

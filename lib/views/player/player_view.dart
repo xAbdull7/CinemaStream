@@ -2155,6 +2155,19 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                     ),
                   ),
 
+                  // Smart Chapter Divisor Notches
+                  for (final ch in player.effectiveChapters)
+                    if (durMs > 0 && ch.time > Duration.zero)
+                      Positioned(
+                        left: width * (ch.time.inMilliseconds / durMs).clamp(0.0, 1.0),
+                        top: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 2.5,
+                          color: Colors.black.withOpacity(0.85),
+                        ),
+                      ),
+
                   // Glowing Circular Thumb
                   Positioned(
                     left: (width * posFraction) - (_isScrubberHovered ? 8 : 5),
@@ -2187,17 +2200,17 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                       ),
                     ),
                     Positioned(
-                      left: (_scrubberHoverLocalX - 85).clamp(8.0, width - 178.0),
+                      left: (_scrubberHoverLocalX - 95).clamp(8.0, width - 198.0),
                       bottom: 26,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                           child: Container(
-                            width: 170,
+                            width: 190,
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF14141E).withOpacity(0.88),
+                              color: const Color(0xFF14141E).withOpacity(0.92),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: Colors.white.withOpacity(0.25),
@@ -2219,71 +2232,96 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Mini Cinematic Frame Header
+                                // 16:9 Live Media Visual Snapshot Header
                                 Container(
-                                  height: 58,
+                                  height: 85,
                                   width: double.infinity,
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(8),
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        const Color(0xFF232332),
-                                        Colors.black.withOpacity(0.9),
+                                    border: Border.all(color: Colors.white24, width: 0.8),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (player.currentMedia?.backdropUrl != null ||
+                                            player.currentMedia?.posterUrl != null)
+                                          Image.network(
+                                            player.currentMedia!.backdropUrl ?? player.currentMedia!.posterUrl!,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
+                                          )
+                                        else
+                                          _buildEpisodePlaceholder(),
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Colors.transparent,
+                                                Colors.black.withOpacity(0.85),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          bottom: 4,
+                                          right: 6,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.85),
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: Colors.white24, width: 0.8),
+                                            ),
+                                            child: Text(
+                                              _formatDuration(hoverTime),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ],
                                     ),
-                                    border: Border.all(color: Colors.white12, width: 0.8),
                                   ),
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      const Icon(Icons.movie_creation_outlined, color: Colors.white24, size: 24),
-                                      Positioned(
-                                        bottom: 3,
-                                        right: 5,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.8),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
+                                ),
+                                const SizedBox(height: 6),
+                                // Chapter Badge
+                                if (player.getChapterAt(hoverTime) != null) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.netflixRed.withOpacity(0.18),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: AppColors.netflixRed.withOpacity(0.6), width: 0.8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.bookmark_rounded, color: AppColors.netflixRed, size: 11),
+                                        const SizedBox(width: 4),
+                                        Expanded(
                                           child: Text(
-                                            _formatDuration(hoverTime),
+                                            player.getChapterAt(hoverTime)!.title,
                                             style: const TextStyle(
                                               color: Colors.white,
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
-                                              letterSpacing: 0.5,
                                             ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 6),
-                                // Chapter Title if available
-                                if (player.getChapterAt(hoverTime) != null) ...[
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.bookmark_rounded, color: AppColors.netflixRed, size: 12),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          player.getChapterAt(hoverTime)!.title,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 3),
                                 ],
                                 // Quick Jump hint
                                 Text(

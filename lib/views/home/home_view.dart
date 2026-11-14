@@ -204,22 +204,38 @@ class _HomeViewState extends State<HomeView> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0C0C0E),
+      backgroundColor: const Color(0xFF070B14),
       body: Stack(
         children: [
-          // 0. Atmospheric Ambient Glow Lights (Liquid Glass Optical Refraction Canvas)
+          // 0. Atmospheric Deep Sapphire / Slate Radial Gradient Canvas (Matches Image 3)
+          Positioned.fill(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(0.35, -0.65),
+                  radius: 1.5,
+                  colors: [
+                    Color(0xFF141F36), // Deep sapphire ambient glow
+                    Color(0xFF0A0F1D), // Mid navy
+                    Color(0xFF060910), // Dark charcoal base
+                  ],
+                  stops: [0.0, 0.45, 1.0],
+                ),
+              ),
+            ),
+          ),
           Positioned(
-            top: 100,
-            right: -80,
-            width: 500,
-            height: 500,
+            top: 80,
+            right: -60,
+            width: 550,
+            height: 550,
             child: IgnorePointer(
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFFE50914).withOpacity(0.08),
+                      const Color(0xFF1E3A8A).withOpacity(0.12),
                       Colors.transparent,
                     ],
                   ),
@@ -331,6 +347,20 @@ class _HomeViewState extends State<HomeView> {
                     continueWatching: continueWatching,
                     library: library,
                     isArabic: isArabic,
+                  ),
+                ),
+
+              // -------------------------------------------------------------
+              // ROW 1.5: Top 10 Numbered Row (Matches Image 3 Reference)
+              // -------------------------------------------------------------
+              if ((activeTab == NavTab.home || _searchQuery.isNotEmpty) &&
+                  (movies.isNotEmpty || series.isNotEmpty))
+                SliverToBoxAdapter(
+                  child: _buildTop10Section(
+                    items: [...movies, ...series.values.map((e) => e.first)],
+                    library: library,
+                    isArabic: isArabic,
+                    title: isArabic ? 'أفضل 10 أعمال اليوم' : 'Top 10 Today',
                   ),
                 ),
 
@@ -660,6 +690,90 @@ class _HomeViewState extends State<HomeView> {
                 onTap: () => _playMedia(item),
                 onRemove: () => library.removeFromContinueWatching(item.filePath),
                 onMarkWatched: () => library.markAsWatched(item.filePath),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTop10Section({
+    required List<MediaItem> items,
+    required LibraryProvider library,
+    required bool isArabic,
+    required String title,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final displayItems = items.take(10).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 36, 56, 18),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 290,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 56),
+            scrollDirection: Axis.horizontal,
+            itemCount: displayItems.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 28),
+            itemBuilder: (context, index) {
+              final item = displayItems[index];
+              return Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.centerLeft,
+                children: [
+                  // Stylized Big Outline Number Behind Card (Matches Image 3)
+                  Positioned(
+                    left: isArabic ? null : -24,
+                    right: isArabic ? -24 : null,
+                    bottom: -8,
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        fontSize: 110,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -5,
+                        foreground: Paint()
+                          ..style = PaintingStyle.stroke
+                          ..strokeWidth = 3.5
+                          ..color = Colors.white.withOpacity(0.35),
+                      ),
+                    ),
+                  ),
+                  // Poster Card with Padding
+                  Padding(
+                    padding: EdgeInsets.only(
+                      left: isArabic ? 0 : 42,
+                      right: isArabic ? 42 : 0,
+                    ),
+                    child: MediaCard(
+                      item: item,
+                      width: 180,
+                      height: 270,
+                      onTap: () {
+                        if (item.type == MediaType.seriesEpisode && item.seriesTitle != null) {
+                          final eps = library.seriesGrouped[item.seriesTitle!] ?? [item];
+                          _openSeriesDetails(item.seriesTitle!, eps);
+                        } else {
+                          _playMedia(item);
+                        }
+                      },
+                    ),
+                  ),
+                ],
               );
             },
           ),

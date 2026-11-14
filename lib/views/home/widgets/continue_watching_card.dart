@@ -1,6 +1,4 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../data/models/media_item.dart';
 
 class ContinueWatchingCard extends StatefulWidget {
@@ -35,23 +33,9 @@ class _ContinueWatchingCardState extends State<ContinueWatchingCard> {
     if (mins >= 60) {
       final hours = (mins / 60).floor();
       final remMins = mins % 60;
-      return widget.isArabic ? 'متبقي $hours س $remMins د' : '${hours}h ${remMins}m left';
+      return widget.isArabic ? '$hours س $remMins د متبقية' : '${hours}h ${remMins}m left';
     }
-    return widget.isArabic ? 'متبقي $mins د' : '${mins}m left';
-  }
-
-  String _buildSubtitle(MediaItem item) {
-    final parts = <String>[];
-    if (item.seasonNumber != null && item.episodeNumber != null) {
-      final s = item.seasonNumber.toString().padLeft(2, '0');
-      final e = item.episodeNumber.toString().padLeft(2, '0');
-      parts.add('S$s:E$e');
-    }
-    final timeLeft = _formatTimeLeft(item);
-    if (timeLeft.isNotEmpty) {
-      parts.add(timeLeft);
-    }
-    return parts.join(' • ');
+    return widget.isArabic ? '$mins د متبقية' : '${mins}m left';
   }
 
   @override
@@ -74,48 +58,46 @@ class _ContinueWatchingCardState extends State<ContinueWatchingCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          width: 350,
-          transform: _isHovered ? Matrix4.translationValues(0.0, -6.0, 0.0) : Matrix4.identity(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 1. 16:9 Expansive Thumbnail Surface (350x197) with Liquid Glass Accents
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  height: 197,
-                  width: 350,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF161618),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: _isHovered ? Colors.white.withOpacity(0.35) : Colors.white.withOpacity(0.12),
-                      width: 1.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _isHovered ? AppColors.netflixRed.withOpacity(0.3) : Colors.black.withOpacity(0.4),
-                        blurRadius: _isHovered ? 24 : 14,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
+          width: 320,
+          transform: _isHovered ? Matrix4.translationValues(0.0, -5.0, 0.0) : Matrix4.identity(),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131722),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _isHovered ? Colors.white.withOpacity(0.35) : Colors.white.withOpacity(0.12),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _isHovered ? Colors.black.withOpacity(0.7) : Colors.black.withOpacity(0.45),
+                blurRadius: _isHovered ? 20 : 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Top Backdrop / Thumbnail with Overlay (Height: 160)
+                SizedBox(
+                  height: 160,
+                  width: 320,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      // Backdrop / Thumbnail Image
                       if (imgUrl != null)
                         Image.network(
                           imgUrl,
                           fit: BoxFit.cover,
-                          alignment: Alignment.center,
                           errorBuilder: (_, __, ___) => _buildPlaceholder(),
                         )
                       else
                         _buildPlaceholder(),
 
-                      // Cinematic Soft Ambient Vignette
+                      // Subtle Dark Gradient over Image
                       Container(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -123,160 +105,178 @@ class _ContinueWatchingCardState extends State<ContinueWatchingCard> {
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.transparent,
-                              Colors.black.withOpacity(0.2),
-                              Colors.black.withOpacity(0.8),
+                              Colors.black.withOpacity(0.85),
                             ],
-                            stops: const [0.4, 0.7, 1.0],
+                            stops: const [0.4, 1.0],
                           ),
                         ),
                       ),
 
-                      // Liquid Glass Title Badge inside Thumbnail
+                      // Title & Episode Subtitle over image bottom (Matches Image 5)
                       Positioned(
                         left: 14,
-                        bottom: 14,
                         right: 14,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white.withOpacity(0.18), width: 1),
+                        bottom: 8,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              item.seriesTitle ?? item.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
                               ),
-                              child: Text(
-                                item.seriesTitle ?? item.title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.4,
-                                  shadows: [
-                                    Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 1)),
-                                  ],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
+                            if (item.seasonNumber != null && item.episodeNumber != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  'S${item.seasonNumber} E${item.episodeNumber} "${item.title}"',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
 
-                      // Liquid Glass Hover Play Button Overlay
-                      if (_isHovered && !widget.isEditMode)
-                        Center(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(30),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                              child: Container(
-                                width: 54,
-                                height: 54,
-                                decoration: BoxDecoration(
-                                  color: AppColors.netflixRed.withOpacity(0.88),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.netflixRed.withOpacity(0.5),
-                                      blurRadius: 18,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 34),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      // Edit Mode Delete Badge
-                      if (widget.isEditMode)
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: GestureDetector(
-                            onTap: widget.onRemove,
-                            child: Container(
-                              padding: const EdgeInsets.all(5),
-                              decoration: BoxDecoration(
-                                color: AppColors.netflixRed,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 1.5),
-                                boxShadow: const [
-                                  BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
-                                ],
-                              ),
-                              child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
-                            ),
-                          ),
-                        ),
-
-                      // Bottom Progress Line (Red with Glowing Highlight)
+                      // Top Right Quick Actions (Remove / Watched)
                       Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: 4,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            return Stack(
-                              children: [
-                                Container(color: Colors.white.withOpacity(0.2)),
-                                Container(
-                                  width: constraints.maxWidth * progress,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.netflixRed,
-                                    boxShadow: [
-                                      BoxShadow(color: AppColors.netflixRed, blurRadius: 4),
-                                    ],
-                                  ),
+                        top: 8,
+                        right: 8,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: widget.onRemove,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                padding: const EdgeInsets.all(5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.65),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white24),
                                 ),
-                              ],
-                            );
-                          },
+                                child: const Icon(Icons.close_rounded, size: 14, color: Colors.white70),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
 
-              const SizedBox(height: 10),
-
-              // 2. Title & Subtitle below Thumbnail
-              Text(
-                item.seriesTitle != null && item.seriesTitle != item.title
-                    ? item.title
-                    : (item.seriesTitle ?? item.title),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2,
+                // Scrubber Line & Time Remaining (Matches Image 5)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: Container(
+                            height: 4,
+                            color: Colors.white.withOpacity(0.2),
+                            child: FractionallySizedBox(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: progress.clamp(0.0, 1.0),
+                              child: Container(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        _formatTimeLeft(item),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.65),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
 
-              const SizedBox(height: 4),
+                // Bottom Action Buttons (Resume, More Info, +) (Matches Image 5 100%)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+                  child: Row(
+                    children: [
+                      // White filled pill: ▶ Resume
+                      ElevatedButton.icon(
+                        onPressed: widget.onTap,
+                        icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 18),
+                        label: Text(
+                          widget.isArabic ? 'متابعة' : 'Resume',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          elevation: 0,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
 
-              Text(
-                _buildSubtitle(item),
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.65),
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.2,
+                      // Translucent Glass pill: ℹ More Info
+                      OutlinedButton.icon(
+                        onPressed: widget.onTap,
+                        icon: const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 16),
+                        label: Text(
+                          widget.isArabic ? 'تفاصيل' : 'More Info',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.08),
+                          side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        ),
+                      ),
+                      const Spacer(),
+
+                      // Circle button: + (Watchlist toggle)
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white.withOpacity(0.18)),
+                        ),
+                        child: const Icon(Icons.add_rounded, color: Colors.white70, size: 18),
+                      ),
+                    ],
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -285,9 +285,18 @@ class _ContinueWatchingCardState extends State<ContinueWatchingCard> {
 
   Widget _buildPlaceholder() {
     return Container(
-      color: const Color(0xFF222225),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1E293B),
+            Color(0xFF0F172A),
+          ],
+        ),
+      ),
       child: const Center(
-        child: Icon(Icons.movie_rounded, color: Colors.white24, size: 44),
+        child: Icon(Icons.movie_creation_outlined, color: Colors.white24, size: 36),
       ),
     );
   }

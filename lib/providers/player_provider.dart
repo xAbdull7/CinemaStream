@@ -142,10 +142,24 @@ class PlayerProvider extends ChangeNotifier {
   bool get isAmbientGlowActive => _isAmbientGlowActive;
   List<MediaChapter> get chapters => _chapters;
 
+  List<MediaChapter> get effectiveChapters {
+    if (_chapters.isNotEmpty) return _chapters;
+    if (_duration <= const Duration(minutes: 5)) return [];
+    final durSec = _duration.inSeconds;
+    return [
+      const MediaChapter(title: 'المقدمة • Opening Scene', time: Duration.zero),
+      MediaChapter(title: 'المشهد الأول • Act I', time: Duration(seconds: (durSec * 0.08).round())),
+      MediaChapter(title: 'المشهد الثاني • Act II', time: Duration(seconds: (durSec * 0.32).round())),
+      MediaChapter(title: 'ذروة الأحداث • Climax', time: Duration(seconds: (durSec * 0.65).round())),
+      MediaChapter(title: 'الخاتمة وتتر النهاية • Credits', time: Duration(seconds: (durSec * 0.90).round())),
+    ];
+  }
+
   MediaChapter? getChapterAt(Duration time) {
-    if (_chapters.isEmpty) return null;
+    final list = effectiveChapters;
+    if (list.isEmpty) return null;
     MediaChapter? matched;
-    for (final ch in _chapters) {
+    for (final ch in list) {
       if (time >= ch.time) {
         matched = ch;
       } else {
