@@ -37,7 +37,7 @@ jobs:
 
       - name: Compile Inno Setup Installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/cinemastream_setup.iss
+          iscc installer/cinemastream_setup.iss
 
       - name: Determine Tag Name
         id: get_tag

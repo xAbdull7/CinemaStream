@@ -32,3 +32,4 @@ class GpuService {
 
   static String? get gpuName => _gpuName;
 }
+

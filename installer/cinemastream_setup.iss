@@ -1,7 +1,7 @@
 #define MyAppName "CinemaStream"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "CinemaStream"
-#define MyAppURL "https://github.com/cinemastream"
+#define MyAppURL "https://github.com/xAbdull7/CinemaStream"
 #define MyAppExeName "cinema_stream.exe"
 #define AppGuid "{{D9A24C6F-78B1-4C3D-9457-3B4895690A34}}"
 
@@ -17,9 +17,9 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputDir=D:\MVP Project\cinema_stream\installer\output
+OutputDir=output
 OutputBaseFilename=CinemaStream_Setup_v{#MyAppVersion}
-SetupIconFile=D:\MVP Project\cinema_stream\windows\runner\resources\app_icon.ico
+SetupIconFile=..\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -56,7 +56,7 @@ ar.VideoFileDesc=ملف فيديو CinemaStream
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "D:\MVP Project\cinema_stream\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.log"
+Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.log"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
