@@ -25,6 +25,7 @@ class PlayerProvider extends ChangeNotifier {
 
   MediaItem? _currentMedia;
   MediaItem? _nextEpisode;
+  List<MediaItem> _seriesEpisodes = [];
   bool _isPlaying = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -73,6 +74,48 @@ class PlayerProvider extends ChangeNotifier {
   VideoController get videoController => _videoController;
   MediaItem? get currentMedia => _currentMedia;
   MediaItem? get nextEpisode => _nextEpisode;
+  List<MediaItem> get seriesEpisodes => _seriesEpisodes;
+
+  String get videoQualityLabel {
+    final h = _player.state.videoParams.h ?? _player.state.videoParams.dh ?? 0;
+    if (h >= 2160) return '4K UHD';
+    if (h >= 1440) return '1440p';
+    if (h >= 1080) return '1080p';
+    if (h >= 720) return '720p';
+    if (h > 0) return '${h}p';
+    final name = _currentMedia?.rawFileName.toLowerCase() ?? '';
+    if (name.contains('2160p') || name.contains('4k')) return '4K UHD';
+    if (name.contains('1080p')) return '1080p';
+    if (name.contains('720p')) return '720p';
+    return '1080p';
+  }
+
+  Future<void> playMedia(MediaItem item) => openMedia(item);
+
+  String get audioTrackLabel {
+    if (_selectedAudioTrack != null) {
+      final t = _selectedAudioTrack!.title ?? _selectedAudioTrack!.language ?? 'Track';
+      return t.toUpperCase();
+    }
+    if (_audioTracks.isNotEmpty) {
+      final t = _audioTracks.first.title ?? _audioTracks.first.language ?? 'Stereo 2.0';
+      return t.toUpperCase();
+    }
+    return 'STEREO 2.0';
+  }
+
+  String get subtitleLabel {
+    if (_selectedSubtitle != null) {
+      return _selectedSubtitle!.title;
+    }
+    return 'Off';
+  }
+
+  String get rtxVsrLabel {
+    if (!_hasRtxGpu) return 'Unavailable';
+    return _isRtxVsrActive ? 'Active' : 'Off';
+  }
+
   bool get isPlaying => _isPlaying;
   Duration get position => _position;
   Duration get duration => _duration;
@@ -342,6 +385,7 @@ class PlayerProvider extends ChangeNotifier {
     _showNextEpisodePrompt = false;
     _countdownTimer?.cancel();
     _onlineSubtitles = [];
+    _seriesEpisodes = [];
     _subtitleDelay = 0.0;
     _playbackRate = 1.0;
     _buffer = Duration.zero;
@@ -433,6 +477,7 @@ class PlayerProvider extends ChangeNotifier {
         });
 
       if (seriesEps.isEmpty) return;
+      _seriesEpisodes = seriesEps;
 
       // Find current episode by normalized path first, or by season & episode number
       int idx = seriesEps.indexWhere((e) => norm(e.filePath) == itemNormPath);

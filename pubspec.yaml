@@ -1,7 +1,7 @@
 name: cinema_stream
 description: "A fast, modern Netflix-style media player for Windows 11 with auto resume, metadata, and subtitle support."
 publish_to: "none"
-version: 1.1.0+4
+version: 1.2.0+5
 
 environment:
   sdk: ">=3.2.0 <4.0.0"

@@ -29,11 +29,17 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
   String _seekOsdText = '+10s';
   Timer? _seekOsdTimer;
 
-  // Floating Pop-Out Menu (Audio, Subtitles, Speed)
-  bool _showMenu = false;
-  int _activeMenuTab = 0; // 0: Subtitles, 1: Audio, 2: Speed
+  // Modern Popovers & Drawers State (Matches 100% Reference Design)
+  bool _showSettingsPopover = false;
+  bool _showSubtitlesPopover = false;
+  bool _showEpisodesDrawer = false;
+  bool _showSubCustomize = false;
+  int _selectedSeason = 1;
+  final ScrollController _episodeScrollController = ScrollController();
+
+  // Subtitle search
   final TextEditingController _subSearchController = TextEditingController();
-  String _selectedSubLang = 'ara';
+  final String _selectedSubLang = 'ara';
 
   // Scrubber Hover Preview (Trickplay)
   bool _isScrubberHovered = false;
@@ -44,6 +50,14 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _startHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final player = context.read<PlayerProvider>();
+      if (player.currentMedia?.seasonNumber != null) {
+        setState(() {
+          _selectedSeason = player.currentMedia!.seasonNumber!;
+        });
+      }
+    });
   }
 
   @override
@@ -53,14 +67,19 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
     _subSearchController.dispose();
     _focusNode.dispose();
     _searchFocusNode.dispose();
+    _episodeScrollController.dispose();
     super.dispose();
   }
 
   void _startHideTimer() {
     _hideTimer?.cancel();
-    // Auto-hide controls and cursor after 3 seconds of inactivity
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && !_showMenu && !_isScrubberHovered && !_searchFocusNode.hasFocus) {
+      if (mounted &&
+          !_showSettingsPopover &&
+          !_showSubtitlesPopover &&
+          !_showEpisodesDrawer &&
+          !_isScrubberHovered &&
+          !_searchFocusNode.hasFocus) {
         setState(() => _showControls = false);
       }
     });
@@ -100,31 +119,43 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
     _onUserActivity();
   }
 
-  void _toggleMenu({int tabIndex = 0}) {
+  void _toggleSettingsPopover() {
     setState(() {
-      if (_showMenu && _activeMenuTab == tabIndex) {
-        _showMenu = false;
-      } else {
-        _showMenu = true;
-        _activeMenuTab = tabIndex;
-      }
+      _showSettingsPopover = !_showSettingsPopover;
+      _showSubtitlesPopover = false;
+      _showEpisodesDrawer = false;
     });
+    _onUserActivity();
+  }
 
-    if (_showMenu && tabIndex == 0) {
+  void _toggleSubtitlesPopover() {
+    setState(() {
+      _showSubtitlesPopover = !_showSubtitlesPopover;
+      _showSettingsPopover = false;
+      _showEpisodesDrawer = false;
+      _showSubCustomize = false;
+    });
+    if (_showSubtitlesPopover) {
       final player = context.read<PlayerProvider>();
       final media = player.currentMedia;
       String q = media?.seriesTitle ?? media?.title ?? '';
       if (media?.seasonNumber != null && media?.episodeNumber != null) {
-        final s = media!.seasonNumber!;
-        final e = media.episodeNumber!;
-        q = '$q S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
+        q = '$q S${media!.seasonNumber!.toString().padLeft(2, '0')}E${media.episodeNumber!.toString().padLeft(2, '0')}';
       }
       _subSearchController.text = q;
-      _selectedSubLang = 'ara';
       if (player.onlineSubtitles.isEmpty && !player.isSearchingOnlineSubtitles) {
         player.searchOnlineSubtitles(q, lang: _selectedSubLang);
       }
     }
+    _onUserActivity();
+  }
+
+  void _toggleEpisodesDrawer() {
+    setState(() {
+      _showEpisodesDrawer = !_showEpisodesDrawer;
+      _showSettingsPopover = false;
+      _showSubtitlesPopover = false;
+    });
     _onUserActivity();
   }
 
@@ -157,864 +188,645 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
     final isArabic = locale.isArabic;
     final media = player.currentMedia;
 
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (didPop, _) {
-        player.stopPlayback();
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Focus(
-          focusNode: _focusNode,
-          autofocus: true,
-          onKeyEvent: (node, event) {
-            // When typing inside the subtitle search box, DO NOT intercept keys
-            if (_searchFocusNode.hasFocus) {
-              if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
-                _searchFocusNode.unfocus();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
-            }
-
-            if (event is KeyDownEvent) {
-              if (event.logicalKey == LogicalKeyboardKey.space) {
-                player.playPause();
-                _onUserActivity();
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                player.seekForward10();
-                _triggerSeekOsd('+10s');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Focus(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            _onUserActivity();
+            if (event.logicalKey == LogicalKeyboardKey.space) {
+              player.playPause();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+              if (isArabic) {
                 player.seekBackward10();
                 _triggerSeekOsd('-10s');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                player.adjustVolume(5);
+              } else {
+                player.seekForward10();
+                _triggerSeekOsd('+10s');
+              }
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+              if (isArabic) {
+                player.seekForward10();
+                _triggerSeekOsd('+10s');
+              } else {
+                player.seekBackward10();
+                _triggerSeekOsd('-10s');
+              }
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+              player.adjustVolume(5);
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+              player.adjustVolume(-5);
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
+                event.logicalKey == LogicalKeyboardKey.f11) {
+              _toggleFullscreen();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
+              player.toggleMute();
+              _onUserActivity();
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyZ) {
+              player.adjustSubtitleDelay(-0.1);
+              _triggerSeekOsd('Sub -100ms (${player.subtitleDelay > 0 ? "+" : ""}${player.subtitleDelay.toStringAsFixed(1)}s)');
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyX) {
+              player.adjustSubtitleDelay(0.1);
+              _triggerSeekOsd('Sub +100ms (${player.subtitleDelay > 0 ? "+" : ""}${player.subtitleDelay.toStringAsFixed(1)}s)');
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyB) {
+              player.toggleDialogueBoost();
+              _triggerSeekOsd(player.isDialogueBoostActive ? 'Dialogue Boost ON' : 'Dialogue Boost OFF');
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyR) {
+              player.toggleRtxVsr();
+              _triggerSeekOsd(player.isRtxVsrActive ? 'RTX VSR ON' : 'RTX VSR OFF');
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.keyA) {
+              player.toggleAmbientGlow();
+              _triggerSeekOsd(player.isAmbientGlowActive ? 'Ambient Glow ON' : 'Ambient Glow OFF');
+              return KeyEventResult.handled;
+            } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+              if (_showSettingsPopover || _showSubtitlesPopover || _showEpisodesDrawer) {
+                setState(() {
+                  _showSettingsPopover = false;
+                  _showSubtitlesPopover = false;
+                  _showEpisodesDrawer = false;
+                });
                 _onUserActivity();
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                player.adjustVolume(-5);
-                _onUserActivity();
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
-                  event.logicalKey == LogicalKeyboardKey.f11) {
-                _toggleFullscreen();
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
-                player.toggleMute();
-                _onUserActivity();
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyZ) {
-                player.adjustSubtitleDelay(-0.1);
-                _triggerSeekOsd('Sub -100ms (${player.subtitleDelay > 0 ? "+" : ""}${player.subtitleDelay.toStringAsFixed(1)}s)');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyX) {
-                player.adjustSubtitleDelay(0.1);
-                _triggerSeekOsd('Sub +100ms (${player.subtitleDelay > 0 ? "+" : ""}${player.subtitleDelay.toStringAsFixed(1)}s)');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyB) {
-                player.toggleDialogueBoost();
-                _triggerSeekOsd(player.isDialogueBoostActive ? 'Dialogue Boost ON' : 'Dialogue Boost OFF');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyR) {
-                player.toggleRtxVsr();
-                _triggerSeekOsd(player.isRtxVsrActive ? 'RTX VSR ON' : 'RTX VSR OFF');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.keyA) {
-                player.toggleAmbientGlow();
-                _triggerSeekOsd(player.isAmbientGlowActive ? 'Ambient Glow ON' : 'Ambient Glow OFF');
-                return KeyEventResult.handled;
-              } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-                if (_showMenu) {
-                  setState(() => _showMenu = false);
-                  _onUserActivity();
-                  return KeyEventResult.handled;
-                }
-                _onEscapePressed();
                 return KeyEventResult.handled;
               }
+              _onEscapePressed();
+              return KeyEventResult.handled;
             }
-            return KeyEventResult.ignored;
-          },
-          child: MouseRegion(
-            cursor: _showControls ? SystemMouseCursors.basic : SystemMouseCursors.none,
-            onHover: (_) => _onUserActivity(),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 0. Dynamic Ambient Theatre Glow (Ambilight Aura)
-                if (player.isAmbientGlowActive)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: Alignment.center,
-                            radius: 1.18,
-                            colors: [
-                              Colors.transparent,
-                              player.isRtxVsrActive
-                                  ? const Color(0xFF76B900).withOpacity(0.04)
-                                  : player.isDialogueBoostActive
-                                      ? const Color(0xFF00E5FF).withOpacity(0.04)
-                                      : const Color(0xFFE50914).withOpacity(0.04),
-                              const Color(0xFF101018).withOpacity(0.55),
-                              Colors.black.withOpacity(0.92),
-                            ],
-                            stops: const [0.35, 0.72, 0.88, 1.0],
-                          ),
+          }
+          return KeyEventResult.ignored;
+        },
+        child: MouseRegion(
+          cursor: _showControls ? SystemMouseCursors.basic : SystemMouseCursors.none,
+          onHover: (_) => _onUserActivity(),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 0. Dynamic Ambient Theatre Glow (Ambilight Aura)
+              if (player.isAmbientGlowActive)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: Alignment.center,
+                          radius: 1.18,
+                          colors: [
+                            Colors.transparent,
+                            player.isRtxVsrActive
+                                ? const Color(0xFF76B900).withOpacity(0.04)
+                                : player.isDialogueBoostActive
+                                    ? const Color(0xFF00E5FF).withOpacity(0.04)
+                                    : const Color(0xFFE50914).withOpacity(0.04),
+                            const Color(0xFF101018).withOpacity(0.55),
+                            Colors.black.withOpacity(0.92),
+                          ],
+                          stops: const [0.35, 0.72, 0.88, 1.0],
                         ),
                       ),
                     ),
                   ),
-
-                // 1. Hardware Accelerated Video Player Surface
-                Center(
-                  child: Video(
-                    controller: player.videoController,
-                    controls: NoVideoControls,
-                    subtitleViewConfiguration: const SubtitleViewConfiguration(visible: false),
-                  ),
                 ),
 
-                // 2. Custom Responsive Subtitle Overlay (100% Dynamic Height, Size, Color & Background)
-                Positioned(
-                  left: 48,
-                  right: 48,
-                  bottom: player.subtitleBottomPadding,
-                  child: IgnorePointer(
-                    child: StreamBuilder<List<String>>(
-                      stream: player.player.stream.subtitle,
-                      initialData: player.player.state.subtitle,
-                      builder: (context, snapshot) {
-                        final lines = snapshot.data ?? [];
-                        final text = lines.where((l) => l.trim().isNotEmpty).join('\n').trim();
-                        if (text.isEmpty || player.selectedSubtitle == null) {
-                          return const SizedBox.shrink();
-                        }
-                        return Align(
-                          alignment: Alignment.bottomCenter,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: player.subtitleTransparentBackground
-                                  ? Colors.transparent
-                                  : const Color(0xCC000000),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              text,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: isArabic ? 'Tajawal' : 'NetflixSans',
-                                fontSize: player.subtitleFontSize,
-                                color: player.subtitleColor,
-                                fontWeight: FontWeight.bold,
-                                height: 1.35,
-                                shadows: const [
-                                  Shadow(offset: Offset(2.0, 2.0), blurRadius: 4.0, color: Colors.black),
-                                  Shadow(offset: Offset(-2.0, -2.0), blurRadius: 4.0, color: Colors.black),
-                                  Shadow(offset: Offset(2.0, -2.0), blurRadius: 4.0, color: Colors.black),
-                                  Shadow(offset: Offset(-2.0, 2.0), blurRadius: 4.0, color: Colors.black),
-                                ],
-                              ),
+              // 1. Hardware Accelerated Video Player Surface
+              Center(
+                child: Video(
+                  controller: player.videoController,
+                  controls: NoVideoControls,
+                  subtitleViewConfiguration: const SubtitleViewConfiguration(visible: false),
+                ),
+              ),
+
+              // 2. Custom Responsive Subtitle Overlay
+              Positioned(
+                left: 48,
+                right: 48,
+                bottom: player.subtitleBottomPadding,
+                child: IgnorePointer(
+                  child: StreamBuilder<List<String>>(
+                    stream: player.player.stream.subtitle,
+                    initialData: player.player.state.subtitle,
+                    builder: (context, snapshot) {
+                      final lines = snapshot.data ?? [];
+                      final text = lines.where((l) => l.trim().isNotEmpty).join('\n').trim();
+                      if (text.isEmpty || player.selectedSubtitle == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: player.subtitleTransparentBackground
+                                ? Colors.transparent
+                                : const Color(0xCC000000),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            text,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: isArabic ? 'Tajawal' : 'NetflixSans',
+                              fontSize: player.subtitleFontSize,
+                              color: player.subtitleColor,
+                              fontWeight: FontWeight.bold,
+                              height: 1.35,
+                              shadows: const [
+                                Shadow(offset: Offset(2.0, 2.0), blurRadius: 4.0, color: Colors.black),
+                                Shadow(offset: Offset(-2.0, -2.0), blurRadius: 4.0, color: Colors.black),
+                                Shadow(offset: Offset(2.0, -2.0), blurRadius: 4.0, color: Colors.black),
+                                Shadow(offset: Offset(-2.0, 2.0), blurRadius: 4.0, color: Colors.black),
+                              ],
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
+              ),
 
-                // 2. Video Background Gestures & Mouse-Wheel Volume (Isolated to Background Only)
-                Listener(
-                  onPointerSignal: (pointerSignal) {
-                    if (pointerSignal is PointerScrollEvent && !_showMenu) {
-                      if (pointerSignal.scrollDelta.dy < 0) {
-                        player.adjustVolume(5);
-                      } else if (pointerSignal.scrollDelta.dy > 0) {
-                        player.adjustVolume(-5);
-                      }
+              // 3. Background Click Gestures & Mouse-Wheel Volume
+              Listener(
+                onPointerSignal: (pointerSignal) {
+                  if (pointerSignal is PointerScrollEvent &&
+                      !_showSettingsPopover &&
+                      !_showSubtitlesPopover &&
+                      !_showEpisodesDrawer) {
+                    if (pointerSignal.scrollDelta.dy < 0) {
+                      player.adjustVolume(5);
+                    } else if (pointerSignal.scrollDelta.dy > 0) {
+                      player.adjustVolume(-5);
+                    }
+                    _onUserActivity();
+                  }
+                },
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_showSettingsPopover || _showSubtitlesPopover || _showEpisodesDrawer) {
+                      setState(() {
+                        _showSettingsPopover = false;
+                        _showSubtitlesPopover = false;
+                        _showEpisodesDrawer = false;
+                      });
+                      _searchFocusNode.unfocus();
+                      _onUserActivity();
+                    } else {
+                      player.playPause();
                       _onUserActivity();
                     }
                   },
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: () {
-                      if (_showMenu) {
-                        setState(() => _showMenu = false);
-                        _searchFocusNode.unfocus();
-                        _onUserActivity();
-                      } else {
-                        player.playPause();
-                        _onUserActivity();
-                      }
-                    },
-                    onDoubleTap: () => _toggleFullscreen(),
+                  onDoubleTap: () => _toggleFullscreen(),
+                ),
+              ),
+
+              // 4. Seek OSD Pill Overlay (±10s)
+              if (_showSeekOsd)
+                Center(
+                  child: AnimatedOpacity(
+                    opacity: _showSeekOsd ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _seekOsdText.startsWith('+') ? Icons.fast_forward_rounded : Icons.fast_rewind_rounded,
+                            color: AppColors.netflixRed,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            _seekOsdText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
 
-                // 3. Seek OSD Pill Overlay (±10s)
-                if (_showSeekOsd)
-                  Center(
-                    child: AnimatedOpacity(
-                      opacity: _showSeekOsd ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.85),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(color: Colors.white24, width: 1),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _seekOsdText.startsWith('+') ? Icons.fast_forward_rounded : Icons.fast_rewind_rounded,
-                              color: AppColors.netflixRed,
-                              size: 28,
+              // 5. Cinematic HUD Overlay Controls
+              AnimatedOpacity(
+                opacity: _showControls ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 250),
+                child: IgnorePointer(
+                  ignoring: !_showControls,
+                  child: Stack(
+                    children: [
+                      // Top gradient shadow
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 120,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withOpacity(0.75),
+                                Colors.transparent,
+                              ],
                             ),
-                            const SizedBox(width: 10),
-                            Text(
-                              _seekOsdText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
 
-                // 3.5 Auto-detected Arabic Subtitle Notification
-                if (player.autoSubtitleNotification != null)
-                  Positioned(
-                    top: 85,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF14141E).withOpacity(0.92),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: const Color(0xFF00E5FF).withOpacity(0.7),
-                            width: 1.2,
+                      // Bottom gradient shadow
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: 170,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                Colors.black.withOpacity(0.85),
+                                Colors.transparent,
+                              ],
+                            ),
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF00E5FF).withOpacity(0.35),
-                              blurRadius: 14,
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              player.autoSubtitleNotification!,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
-                    ),
-                  ),
 
-                // 4. Vignette Gradients & Main HUD Controls
-                AnimatedOpacity(
-                  opacity: _showControls ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 280),
-                  child: IgnorePointer(
-                    ignoring: !_showControls,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Top Vignette Gradient
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          height: 140,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.black.withOpacity(0.92),
-                                  Colors.black.withOpacity(0.6),
-                                  Colors.transparent,
-                                ],
-                              ),
+                      // CLEAN TOP BAR (Zero clutter! Back button + Title/Episode only)
+                      Positioned(
+                        top: 24,
+                        left: 28,
+                        right: 28,
+                        child: Row(
+                          children: [
+                            _buildBarIconButton(
+                              icon: Icons.arrow_back_rounded,
+                              tooltip: isArabic ? 'خروج' : 'Exit',
+                              onPressed: () => _handleExit(context),
                             ),
-                          ),
-                        ),
-
-                        // Bottom Vignette Gradient
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          height: 190,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [
-                                  Colors.black.withOpacity(0.95),
-                                  Colors.black.withOpacity(0.65),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // Top Navigation Bar
-                        Positioned(
-                          top: 24,
-                          left: 28,
-                          right: 28,
-                          child: Row(
-                            children: [
-                              _buildIconButton(
-                                icon: Icons.arrow_back_rounded,
-                                tooltip: isArabic ? 'خروج' : 'Exit',
-                                onPressed: () => _handleExit(context),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      media?.title ?? '',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 0.3,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    media?.title ?? '',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.3,
                                     ),
-                                    if (media?.seriesTitle != null && media?.seasonNumber != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text(
-                                          '${media!.seriesTitle} • S${media.seasonNumber.toString().padLeft(2, '0')}E${(media.episodeNumber ?? 1).toString().padLeft(2, '0')}',
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.7),
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w500,
-                                          ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (media?.seriesTitle != null && media?.seasonNumber != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '${media!.seriesTitle} • S${media.seasonNumber.toString().padLeft(2, '0')}E${(media.episodeNumber ?? 1).toString().padLeft(2, '0')}',
+                                        style: TextStyle(
+                                          color: Colors.white.withOpacity(0.7),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
-                                  ],
-                                ),
+                                    ),
+                                ],
                               ),
-                              if (player.nextEpisode != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: _buildQuickChip(
-                                    label: isArabic ? 'الحلقة التالية' : 'Next Ep',
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Center Transport Controls
+                      Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildCenterCircleButton(
+                              icon: Icons.replay_10_rounded,
+                              size: 52,
+                              iconSize: 28,
+                              tooltip: isArabic ? 'تأخير 10 ثوانٍ' : '-10 Seconds',
+                              onPressed: () {
+                                player.seekBackward10();
+                                _triggerSeekOsd('-10s');
+                              },
+                            ),
+                            const SizedBox(width: 32),
+                            _buildCenterCircleButton(
+                              icon: player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              size: 74,
+                              iconSize: 44,
+                              isPrimary: true,
+                              tooltip: player.isPlaying
+                                  ? (isArabic ? 'إيقاف مؤقت' : 'Pause')
+                                  : (isArabic ? 'تشغيل' : 'Play'),
+                              onPressed: () {
+                                player.playPause();
+                                _onUserActivity();
+                              },
+                            ),
+                            const SizedBox(width: 32),
+                            _buildCenterCircleButton(
+                              icon: Icons.forward_10_rounded,
+                              size: 52,
+                              iconSize: 28,
+                              tooltip: isArabic ? 'تقديم 10 ثوانٍ' : '+10 Seconds',
+                              onPressed: () {
+                                player.seekForward10();
+                                _triggerSeekOsd('+10s');
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // BOTTOM CONTROLS BAR (Matches 100% Image 4 Reference)
+                      Positioned(
+                        bottom: 24,
+                        left: 28,
+                        right: 28,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Sleek 3-Tier Scrubber
+                            _build3TierRedScrubber(player, isArabic),
+                            const SizedBox(height: 10),
+
+                            // Controls Row
+                            Row(
+                              children: [
+                                // Play / Pause Button
+                                _buildBarIconButton(
+                                  icon: player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  tooltip: player.isPlaying
+                                      ? (isArabic ? 'إيقاف مؤقت' : 'Pause')
+                                      : (isArabic ? 'تشغيل' : 'Play'),
+                                  size: 26,
+                                  onPressed: () {
+                                    player.playPause();
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+
+                                // Rewind 10s (↺10)
+                                _buildBarIconButton(
+                                  icon: Icons.replay_10_rounded,
+                                  tooltip: isArabic ? 'تأخير 10 ثوانٍ' : 'Rewind 10s',
+                                  size: 22,
+                                  onPressed: () {
+                                    player.seekBackward10();
+                                    _triggerSeekOsd('-10s');
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+
+                                // Forward 10s (↻10)
+                                _buildBarIconButton(
+                                  icon: Icons.forward_10_rounded,
+                                  tooltip: isArabic ? 'تقديم 10 ثوانٍ' : 'Forward 10s',
+                                  size: 22,
+                                  onPressed: () {
+                                    player.seekForward10();
+                                    _triggerSeekOsd('+10s');
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+
+                                // Next Episode Button (if available)
+                                if (player.nextEpisode != null) ...[
+                                  _buildBarIconButton(
                                     icon: Icons.skip_next_rounded,
+                                    tooltip: isArabic
+                                        ? 'الحلقة التالية (${player.nextEpisode!.title})'
+                                        : 'Next Episode (${player.nextEpisode!.title})',
+                                    size: 24,
                                     onPressed: () {
                                       player.playNextEpisode();
-                                      _onUserActivity();
                                     },
                                   ),
-                                ),
-                              if (player.hasRtxGpu)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                                  child: Tooltip(
-                                    message: player.isRtxVsrActive
-                                        ? (isArabic
-                                            ? 'انقر للتعطيل • تحسين RTX والحدة الفائقة نشط حالياً'
-                                            : 'Click to Disable • RTX AI Super Resolution & Sharpening Active')
-                                        : (isArabic
-                                            ? 'انقر للتفعيل • تشغيل معالجة RTX والحدة الفائقة'
-                                            : 'Click to Enable • Turn on RTX AI Super Resolution & Sharpening'),
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        onTap: () {
-                                          player.toggleRtxVsr();
-                                          _onUserActivity();
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Row(
-                                                children: [
-                                                  Icon(
-                                                    player.isRtxVsrActive ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                                                    color: player.isRtxVsrActive ? const Color(0xFF76B900) : Colors.white70,
-                                                  ),
-                                                  const SizedBox(width: 10),
-                                                  Text(
-                                                    player.isRtxVsrActive
-                                                        ? (isArabic ? 'تم تفعيل معالجة RTX فائقة الحدة' : 'RTX AI Super Resolution & Sharpening Enabled')
-                                                        : (isArabic ? 'تم إيقاف معالجة RTX' : 'RTX AI Processing Disabled'),
-                                                  ),
-                                                ],
-                                              ),
-                                              backgroundColor: const Color(0xFF1E1E24),
-                                              duration: const Duration(seconds: 2),
-                                            ),
-                                          );
-                                        },
-                                        borderRadius: BorderRadius.circular(20),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: player.isRtxVsrActive
-                                                ? const Color(0xFF76B900).withOpacity(0.2)
-                                                : Colors.white.withOpacity(0.06),
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: player.isRtxVsrActive
-                                                  ? const Color(0xFF76B900).withOpacity(0.85)
-                                                  : Colors.white24,
-                                              width: 1.2,
-                                            ),
-                                            boxShadow: player.isRtxVsrActive
-                                                ? [
-                                                    BoxShadow(
-                                                      color: const Color(0xFF76B900).withOpacity(0.4),
-                                                      blurRadius: 10,
-                                                      spreadRadius: 1,
-                                                    ),
-                                                  ]
-                                                : null,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.bolt_rounded,
-                                                color: player.isRtxVsrActive ? const Color(0xFF76B900) : Colors.white38,
-                                                size: 15,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                player.isRtxVsrActive ? 'RTX VSR' : 'RTX OFF',
-                                                style: TextStyle(
-                                                  color: player.isRtxVsrActive ? Colors.white : Colors.white54,
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 0.8,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              // Dialogue Boost / Night Mode Badge
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 5),
-                                child: Tooltip(
-                                  message: player.isDialogueBoostActive
-                                      ? (isArabic
-                                          ? 'انقر للتعطيل • مضخم الحوارات ونمط المشاهدة الليلية نشط [B]'
-                                          : 'Click to Disable • Dialogue Boost & Night Mode Active [B]')
-                                      : (isArabic
-                                          ? 'انقر للتفعيل • تشغيل مضخم الحوارات وموازنة الانفجارات [B]'
-                                          : 'Click to Enable • Dialogue Boost & Explosion Suppression [B]'),
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () {
-                                        player.toggleDialogueBoost();
-                                        _onUserActivity();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Row(
-                                              children: [
-                                                Icon(
-                                                  player.isDialogueBoostActive ? Icons.graphic_eq_rounded : Icons.info_outline_rounded,
-                                                  color: player.isDialogueBoostActive ? const Color(0xFF00E5FF) : Colors.white70,
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Text(
-                                                  player.isDialogueBoostActive
-                                                      ? (isArabic ? 'تم تفعيل مضخم الحوارات ونمط المشاهدة الليلية' : 'Dialogue Boost & Night Mode Enabled')
-                                                      : (isArabic ? 'تم إيقاف مضخم الحوارات' : 'Dialogue Boost Disabled'),
-                                                ),
-                                              ],
-                                            ),
-                                            backgroundColor: const Color(0xFF1E1E24),
-                                            duration: const Duration(seconds: 2),
-                                          ),
-                                        );
-                                      },
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: player.isDialogueBoostActive
-                                              ? const Color(0xFF00E5FF).withOpacity(0.18)
-                                              : Colors.white.withOpacity(0.06),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: player.isDialogueBoostActive
-                                                ? const Color(0xFF00E5FF).withOpacity(0.85)
-                                                : Colors.white24,
-                                            width: 1.2,
-                                          ),
-                                          boxShadow: player.isDialogueBoostActive
-                                              ? [
-                                                  BoxShadow(
-                                                    color: const Color(0xFF00E5FF).withOpacity(0.35),
-                                                    blurRadius: 10,
-                                                    spreadRadius: 1,
-                                                  ),
-                                                ]
-                                              : null,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.graphic_eq_rounded,
-                                              color: player.isDialogueBoostActive ? const Color(0xFF00E5FF) : Colors.white38,
-                                              size: 15,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              player.isDialogueBoostActive ? 'BOOST' : 'BOOST OFF',
-                                              style: TextStyle(
-                                                color: player.isDialogueBoostActive ? Colors.white : Colors.white54,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w900,
-                                                letterSpacing: 0.8,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                                  const SizedBox(width: 6),
+                                ],
 
-                              // Ambient Ambilight Glow Badge
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 5),
-                                child: Tooltip(
-                                  message: player.isAmbientGlowActive
-                                      ? (isArabic
-                                          ? 'انقر للتعطيل • الإضاءة المحيطية السينمائية نشطة [A]'
-                                          : 'Click to Disable • Ambient Ambilight Lighting Active [A]')
-                                      : (isArabic
-                                          ? 'انقر للتفعيل • تشغيل الإضاءة المحيطية السينمائية [A]'
-                                          : 'Click to Enable • Turn on Ambient Lighting [A]'),
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () {
-                                        player.toggleAmbientGlow();
-                                        _onUserActivity();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Row(
-                                              children: [
-                                                Icon(
-                                                  player.isAmbientGlowActive ? Icons.auto_awesome_rounded : Icons.info_outline_rounded,
-                                                  color: player.isAmbientGlowActive ? const Color(0xFFFFB300) : Colors.white70,
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Text(
-                                                  player.isAmbientGlowActive
-                                                      ? (isArabic ? 'تم تفعيل الإضاءة المحيطية السينمائية' : 'Ambient Lighting Enabled')
-                                                      : (isArabic ? 'تم إيقاف الإضاءة المحيطية' : 'Ambient Lighting Disabled'),
-                                                ),
-                                              ],
-                                            ),
-                                            backgroundColor: const Color(0xFF1E1E24),
-                                            duration: const Duration(seconds: 2),
-                                          ),
-                                        );
-                                      },
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: player.isAmbientGlowActive
-                                              ? const Color(0xFFFFB300).withOpacity(0.18)
-                                              : Colors.white.withOpacity(0.06),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: player.isAmbientGlowActive
-                                                ? const Color(0xFFFFB300).withOpacity(0.85)
-                                                : Colors.white24,
-                                            width: 1.2,
-                                          ),
-                                          boxShadow: player.isAmbientGlowActive
-                                              ? [
-                                                  BoxShadow(
-                                                    color: const Color(0xFFFFB300).withOpacity(0.35),
-                                                    blurRadius: 10,
-                                                    spreadRadius: 1,
-                                                  ),
-                                                ]
-                                              : null,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.auto_awesome_rounded,
-                                              color: player.isAmbientGlowActive ? const Color(0xFFFFB300) : Colors.white38,
-                                              size: 15,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              player.isAmbientGlowActive ? 'AMBIENT' : 'AMBIENT OFF',
-                                              style: TextStyle(
-                                                color: player.isAmbientGlowActive ? Colors.white : Colors.white54,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w900,
-                                                letterSpacing: 0.8,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
+                                // Volume Control (Icon + Slider + Percentage)
+                                _buildVolumeControl(player),
+
+                                const SizedBox(width: 14),
+
+                                // Time (25:09 / 42:55)
+                                Text(
+                                  '${_formatDuration(player.position)} / ${_formatDuration(player.duration)}',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.85),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.4,
                                   ),
                                 ),
-                              ),
-                              _buildQuickChip(
-                                label: '${player.playbackRate}x',
-                                icon: Icons.speed_rounded,
-                                onPressed: () => _toggleMenu(tabIndex: 2),
-                              ),
-                              const SizedBox(width: 10),
-                              _buildIconButton(
-                                icon: Icons.tune_rounded,
-                                tooltip: isArabic ? 'الصوت والترجمة' : 'Audio & Subtitles',
-                                onPressed: () => _toggleMenu(tabIndex: 0),
-                              ),
+
+                                const Spacer(),
+
+                                // Episodes Drawer Button (Layers icon from Image 4)
+                                if (player.seriesEpisodes.isNotEmpty || media?.seriesTitle != null) ...[
+                                  _buildBarIconButton(
+                                    icon: Icons.layers_rounded,
+                                    tooltip: isArabic ? 'الحلقات' : 'Episodes',
+                                    isActive: _showEpisodesDrawer,
+                                    onPressed: _toggleEpisodesDrawer,
+                                  ),
+                                  const SizedBox(width: 10),
+                                ],
+
+                                // Picture-in-Picture Button
+                                _buildBarIconButton(
+                                  icon: Icons.picture_in_picture_alt_rounded,
+                                  tooltip: isArabic ? 'صورة داخل صورة' : 'Picture in Picture',
+                                  onPressed: () {
+                                    // PiP trigger
+                                    _triggerSeekOsd(isArabic ? 'صورة داخل صورة' : 'PiP');
+                                  },
+                                ),
+                                const SizedBox(width: 10),
+
+                                // Server / Stream Source Button
+                                _buildBarIconButton(
+                                  icon: Icons.cloud_outlined,
+                                  tooltip: isArabic ? 'السيرفر ومصدر البث' : 'Streaming Server',
+                                  onPressed: _toggleSettingsPopover,
+                                ),
+                                const SizedBox(width: 10),
+
+                                // Subtitles Button (CC) - Active white circle when open
+                                _buildBarIconButton(
+                                  icon: Icons.closed_caption_rounded,
+                                  tooltip: isArabic ? 'الترجمة' : 'Subtitles',
+                                  isActive: _showSubtitlesPopover,
+                                  iconColor: player.selectedSubtitle != null ? AppColors.netflixRed : Colors.white,
+                                  onPressed: _toggleSubtitlesPopover,
+                                ),
+                                const SizedBox(width: 10),
+
+                                // Settings Button (⚙️) - Active white circle when open
+                                _buildBarIconButton(
+                                  icon: Icons.settings_rounded,
+                                  tooltip: isArabic ? 'الإعدادات' : 'Settings',
+                                  isActive: _showSettingsPopover,
+                                  onPressed: _toggleSettingsPopover,
+                                ),
+                                const SizedBox(width: 10),
+
+                                // Fullscreen Button
+                                _buildBarIconButton(
+                                  icon: Icons.fullscreen_rounded,
+                                  tooltip: isArabic ? 'ملء الشاشة' : 'Fullscreen (F)',
+                                  size: 24,
+                                  onPressed: () => _toggleFullscreen(),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // 6. Skip Intro Floating Button
+              if (player.canSkipIntro)
+                Positioned(
+                  bottom: 95,
+                  right: 36,
+                  child: AnimatedOpacity(
+                    opacity: player.canSkipIntro ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          player.skipIntro();
+                          _onUserActivity();
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.5),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 3)),
                             ],
                           ),
-                        ),
-
-                        // Center Transport Controls (Quick Jump ±10s & Large Play/Pause)
-                        Center(
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _buildCenterCircleButton(
-                                icon: Icons.replay_10_rounded,
-                                size: 52,
-                                iconSize: 28,
-                                tooltip: isArabic ? 'تأخير 10 ثوانٍ' : '-10 Seconds',
-                                onPressed: () {
-                                  player.seekBackward10();
-                                  _triggerSeekOsd('-10s');
-                                },
-                              ),
-                              const SizedBox(width: 32),
-                              _buildCenterCircleButton(
-                                icon: player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                size: 74,
-                                iconSize: 44,
-                                isPrimary: true,
-                                tooltip: player.isPlaying
-                                    ? (isArabic ? 'إيقاف مؤقت' : 'Pause')
-                                    : (isArabic ? 'تشغيل' : 'Play'),
-                                onPressed: () {
-                                  player.playPause();
-                                  _onUserActivity();
-                                },
-                              ),
-                              const SizedBox(width: 32),
-                              _buildCenterCircleButton(
-                                icon: Icons.forward_10_rounded,
-                                size: 52,
-                                iconSize: 28,
-                                tooltip: isArabic ? 'تقديم 10 ثوانٍ' : '+10 Seconds',
-                                onPressed: () {
-                                  player.seekForward10();
-                                  _triggerSeekOsd('+10s');
-                                },
+                              const Icon(Icons.fast_forward_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                isArabic ? 'تخطي المقدمة' : 'Skip Intro',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.3,
+                                ),
                               ),
                             ],
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                ),
 
-                        // Bottom Bar with 3-Tier Red Scrubber & Media Controls
-                        Positioned(
-                          bottom: 20,
-                          left: 32,
-                          right: 32,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Custom 3-Tier Red Scrubber with Hover Trickplay Preview Tooltip
-                              _build3TierRedScrubber(player, isArabic),
-                              const SizedBox(height: 10),
-
-                              // Controls Bottom Row
-                              Row(
-                                children: [
-                                  // Play/Pause icon button
-                                  IconButton(
-                                    icon: Icon(
-                                      player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                      color: Colors.white,
-                                      size: 26,
-                                    ),
-                                    onPressed: () {
-                                      player.playPause();
-                                      _onUserActivity();
-                                    },
-                                  ),
-
-                                  // Next Episode button in bottom bar
-                                  if (player.nextEpisode != null)
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.skip_next_rounded,
-                                        color: Colors.white,
-                                        size: 28,
-                                      ),
-                                      tooltip: isArabic
-                                          ? 'الحلقة التالية (${player.nextEpisode!.title})'
-                                          : 'Next Episode (${player.nextEpisode!.title})',
-                                      onPressed: () {
-                                        player.playNextEpisode();
-                                        _onUserActivity();
-                                      },
-                                    ),
-
-                                  // Time Remaining / Elapsed
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                                    child: Text(
-                                      '${_formatDuration(player.position)} / ${_formatDuration(player.duration)}',
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.85),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.4,
-                                      ),
-                                    ),
-                                  ),
-
-                                  const Spacer(),
-
-                                  // Volume Slider & Mute
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: Icon(
-                                          player.isMuted
-                                              ? Icons.volume_off_rounded
-                                              : (player.volume > 50
-                                                  ? Icons.volume_up_rounded
-                                                  : (player.volume > 0
-                                                      ? Icons.volume_down_rounded
-                                                      : Icons.volume_mute_rounded)),
-                                          color: Colors.white,
-                                          size: 22,
-                                        ),
-                                        onPressed: () {
-                                          player.toggleMute();
-                                          _onUserActivity();
-                                        },
-                                      ),
-                                      SizedBox(
-                                        width: 90,
-                                        child: SliderTheme(
-                                          data: const SliderThemeData(
-                                            trackHeight: 3,
-                                            thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-                                            overlayShape: RoundSliderOverlayShape(overlayRadius: 10),
-                                            activeTrackColor: Colors.white,
-                                            inactiveTrackColor: Colors.white24,
-                                            thumbColor: Colors.white,
-                                          ),
-                                          child: Slider(
-                                            value: player.isMuted ? 0.0 : player.volume,
-                                            min: 0.0,
-                                            max: 100.0,
-                                            onChanged: (val) {
-                                              player.setVolume(val);
-                                              _onUserActivity();
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 36,
-                                        child: Text(
-                                          '${player.volume.round()}%',
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.7),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          textAlign: TextAlign.start,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  const SizedBox(width: 14),
-
-                                  // Subtitle Pop-Out Menu Button
-                                  _buildIconButton(
-                                    icon: Icons.subtitles_rounded,
-                                    tooltip: isArabic ? 'الترجمة' : 'Subtitles',
-                                    color: player.selectedSubtitle != null ? AppColors.netflixRed : Colors.white,
-                                    onPressed: () => _toggleMenu(tabIndex: 0),
-                                  ),
-
-                                  // Audio Track Button
-                                  _buildIconButton(
-                                    icon: Icons.audiotrack_rounded,
-                                    tooltip: isArabic ? 'مسارات الصوت' : 'Audio Tracks',
-                                    onPressed: () => _toggleMenu(tabIndex: 1),
-                                  ),
-
-                                  // Playback Speed Button
-                                  _buildIconButton(
-                                    icon: Icons.speed_rounded,
-                                    tooltip: isArabic ? 'سرعة التشغيل' : 'Playback Speed',
-                                    color: player.playbackRate != 1.0 ? AppColors.netflixRed : Colors.white,
-                                    onPressed: () => _toggleMenu(tabIndex: 2),
-                                  ),
-
-                                  // Fullscreen Button
-                                  _buildIconButton(
-                                    icon: Icons.fullscreen_rounded,
-                                    tooltip: isArabic ? 'ملء الشاشة' : 'Fullscreen (F)',
-                                    onPressed: () => _toggleFullscreen(),
-                                  ),
-                                ],
+              // 7. Next Episode Prompt Card
+              if (player.nextEpisode != null && (player.showNextEpisodePrompt || player.isNearEnd))
+                Positioned(
+                  bottom: 95,
+                  right: 36,
+                  child: Container(
+                    width: 320,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF181818).withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.netflixRed.withOpacity(0.7), width: 1.5),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 6)),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.skip_next_rounded, color: AppColors.netflixRed, size: 22),
+                            const SizedBox(width: 8),
+                            Text(
+                              isArabic ? 'الحلقة التالية' : 'Next Episode',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          player.nextEpisode!.title,
+                          style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.netflixRed,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            ),
+                            onPressed: () {
+                              player.playNextEpisode();
+                              _onUserActivity();
+                            },
+                            child: Text(
+                              isArabic ? 'تشغيل الآن' : 'Play Now',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ),
                       ],
@@ -1022,167 +834,1241 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                   ),
                 ),
 
-                // 5. Smart Skip Intro Floating Button (Bottom Right)
-                if (player.canSkipIntro)
-                  Positioned(
-                    bottom: 95,
-                    right: 36,
-                    child: AnimatedOpacity(
-                      opacity: player.canSkipIntro ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 300),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
+              // 8. Horizontal Episode Drawer (Shelf above scrubber matching Image 4)
+              if (_showEpisodesDrawer)
+                Positioned(
+                  bottom: 84,
+                  left: 28,
+                  right: 28,
+                  height: 235,
+                  child: _buildEpisodesDrawer(player, isArabic),
+                ),
+
+              // 9. Settings Popover (Liquid Glass iOS 27 matching Image 2)
+              if (_showSettingsPopover)
+                Positioned(
+                  bottom: 78,
+                  right: 28,
+                  width: 320,
+                  child: _buildSettingsPopover(player, locale),
+                ),
+
+              // 10. Subtitles Popover (Liquid Glass iOS 27 matching Image 3)
+              if (_showSubtitlesPopover)
+                Positioned(
+                  bottom: 78,
+                  right: 76,
+                  width: 340,
+                  height: 490,
+                  child: _buildSubtitlesPopover(player, locale),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Volume Control Widget (Icon + Slider + Percentage) ---
+  Widget _buildVolumeControl(PlayerProvider player) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            player.isMuted
+                ? Icons.volume_off_rounded
+                : (player.volume > 50
+                    ? Icons.volume_up_rounded
+                    : (player.volume > 0
+                        ? Icons.volume_down_rounded
+                        : Icons.volume_mute_rounded)),
+            color: Colors.white,
+            size: 22,
+          ),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () {
+            player.toggleMute();
+            _onUserActivity();
+          },
+        ),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 80,
+          child: SliderTheme(
+            data: const SliderThemeData(
+              trackHeight: 3,
+              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: RoundSliderOverlayShape(overlayRadius: 9),
+              activeTrackColor: Colors.white,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+            ),
+            child: Slider(
+              value: player.isMuted ? 0.0 : player.volume,
+              min: 0.0,
+              max: 100.0,
+              onChanged: (val) {
+                player.setVolume(val);
+                _onUserActivity();
+              },
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 34,
+          child: Text(
+            '${player.volume.round()}%',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.start,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- Liquid Glass Bar Icon Button with Active White Circle Highlight ---
+  Widget _buildBarIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool isActive = false,
+    Color iconColor = Colors.white,
+    double size = 22,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            onPressed();
+            _onUserActivity();
+          },
+          borderRadius: BorderRadius.circular(22),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: isActive ? Colors.white : Colors.white.withOpacity(0.06),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isActive ? Colors.transparent : Colors.white.withOpacity(0.12),
+                width: 1,
+              ),
+              boxShadow: isActive
+                  ? [
+                      BoxShadow(
+                        color: Colors.white.withOpacity(0.35),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Center(
+              child: Icon(
+                icon,
+                color: isActive ? Colors.black : iconColor,
+                size: size,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Center Circle Button ---
+  Widget _buildCenterCircleButton({
+    required IconData icon,
+    required double size,
+    required double iconSize,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool isPrimary = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            onPressed();
+            _onUserActivity();
+          },
+          borderRadius: BorderRadius.circular(size / 2),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: isPrimary ? AppColors.netflixRed : Colors.black.withOpacity(0.6),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isPrimary ? AppColors.netflixRed : Colors.white.withOpacity(0.35),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (isPrimary ? AppColors.netflixRed : Colors.black).withOpacity(0.4),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: iconSize),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- 1. SETTINGS POPOVER (Matches Image 2 100%) ---
+  Widget _buildSettingsPopover(PlayerProvider player, LocaleProvider locale) {
+    final isArabic = locale.isArabic;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141418).withOpacity(0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.14), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.7),
+                blurRadius: 30,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 2x2 Metric Tiles Grid
+              Row(
+                children: [
+                  // Top-Left: QUALITY
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.high_quality_rounded,
+                      label: isArabic ? 'الجودة' : 'QUALITY',
+                      value: player.videoQualityLabel,
+                      isActive: false,
+                      onTap: () {},
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Top-Right: RTX VSR (NVIDIA Green Glow when active)
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.bolt_rounded,
+                      label: isArabic ? 'معالجة RTX' : 'RTX VSR',
+                      value: player.hasRtxGpu ? (player.isRtxVsrActive ? 'Active' : 'Off') : 'N/A',
+                      isActive: player.isRtxVsrActive,
+                      activeColor: const Color(0xFF76B900),
+                      onTap: () {
+                        if (player.hasRtxGpu) {
+                          player.toggleRtxVsr();
+                          _onUserActivity();
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // Bottom-Left: SUBTITLES
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.closed_caption_rounded,
+                      label: isArabic ? 'الترجمة' : 'SUBTITLES',
+                      value: player.selectedSubtitle != null ? player.subtitleLabel : 'Off',
+                      isActive: player.selectedSubtitle != null,
+                      activeColor: AppColors.netflixRed,
+                      onTap: () {
+                        setState(() {
+                          _showSettingsPopover = false;
+                          _showSubtitlesPopover = true;
+                        });
+                        _onUserActivity();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Bottom-Right: AUDIO
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.music_note_rounded,
+                      label: isArabic ? 'الصوت' : 'AUDIO',
+                      value: player.audioTrackLabel,
+                      isActive: false,
+                      onTap: () {
+                        if (player.audioTracks.length > 1) {
+                          final currIdx = player.selectedAudioTrack != null
+                              ? player.audioTracks.indexOf(player.selectedAudioTrack!)
+                              : 0;
+                          final nextIdx = (currIdx + 1) % player.audioTracks.length;
+                          player.selectAudioTrack(player.audioTracks[nextIdx]);
+                          _onUserActivity();
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(color: Colors.white12, height: 1),
+              ),
+
+              // Dialogue Boost (Night Mode) Toggle Row
+              _buildSettingsSwitchRow(
+                icon: Icons.graphic_eq_rounded,
+                title: isArabic ? 'مضخم الحوارات والصوت' : 'Dialogue Boost',
+                value: player.isDialogueBoostActive,
+                activeColor: const Color(0xFF00E5FF),
+                onChanged: (val) {
+                  player.toggleDialogueBoost();
+                  _onUserActivity();
+                },
+              ),
+
+              // Ambient Glow Toggle Row
+              _buildSettingsSwitchRow(
+                icon: Icons.auto_awesome_rounded,
+                title: isArabic ? 'الإضاءة المحيطية السينمائية' : 'Ambient Glow',
+                value: player.isAmbientGlowActive,
+                activeColor: const Color(0xFFFFB300),
+                onChanged: (val) {
+                  player.toggleAmbientGlow();
+                  _onUserActivity();
+                },
+              ),
+
+              // Enable Subtitles Toggle Row
+              _buildSettingsSwitchRow(
+                icon: Icons.closed_caption_rounded,
+                title: isArabic ? 'تفعيل الترجمة' : 'Enable Subtitles',
+                value: player.selectedSubtitle != null,
+                activeColor: AppColors.netflixRed,
+                onChanged: (val) {
+                  if (val) {
+                    if (player.subtitles.isNotEmpty) {
+                      player.selectSubtitle(player.subtitles.first);
+                    } else {
+                      player.pickAndLoadLocalSubtitle();
+                    }
+                  } else {
+                    player.disableSubtitles();
+                  }
+                  _onUserActivity();
+                },
+              ),
+
+              // Playback Speed Selector Row
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  children: [
+                    const Icon(Icons.speed_rounded, color: Colors.white70, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isArabic ? 'سرعة التشغيل' : 'Playback Speed',
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 4,
+                      children: [0.75, 1.0, 1.25, 1.5].map((s) {
+                        final isSel = player.playbackRate == s;
+                        return InkWell(
                           onTap: () {
-                            player.skipIntro();
+                            player.setPlaybackRate(s);
                             _onUserActivity();
                           },
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(4),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.white.withOpacity(0.6), width: 1.5),
-                              boxShadow: const [
-                                BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 3)),
-                              ],
+                              color: isSel ? AppColors.netflixRed : Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.fast_forward_rounded, color: Colors.white, size: 20),
-                                const SizedBox(width: 8),
-                                Text(
-                                  isArabic ? 'تخطي المقدمة' : 'Skip Intro',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.3,
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              '${s}x',
+                              style: TextStyle(
+                                color: isSel ? Colors.white : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Audio Delay / Sync Row
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sync_rounded, color: Colors.white70, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isArabic ? 'مزامنة الصوت' : 'Audio Sync',
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: () => player.adjustAudioDelay(-0.1),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('-100ms', style: TextStyle(color: Colors.white70, fontSize: 10)),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Text(
+                            player.audioDelay == 0.0
+                                ? '0.0s'
+                                : '${player.audioDelay > 0 ? "+" : ""}${player.audioDelay.toStringAsFixed(1)}s',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => player.adjustAudioDelay(0.1),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('+100ms', style: TextStyle(color: Colors.white70, fontSize: 10)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Subtitle Settings Navigation Row
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _showSettingsPopover = false;
+                    _showSubtitlesPopover = true;
+                    _showSubCustomize = true;
+                  });
+                  _onUserActivity();
+                },
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.format_size_rounded, color: Colors.white70, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          isArabic ? 'تخصيص الخط والترجمة' : 'Subtitle Settings',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper metric tile for 2x2 grid
+  Widget _buildMetricTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required bool isActive,
+    Color activeColor = const Color(0xFF76B900),
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: isActive ? activeColor.withOpacity(0.15) : Colors.white.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isActive ? activeColor.withOpacity(0.85) : Colors.white.withOpacity(0.09),
+              width: 1.2,
+            ),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: activeColor.withOpacity(0.35),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: isActive ? activeColor : Colors.white54, size: 13),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: isActive ? activeColor : Colors.white60,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: TextStyle(
+                  color: isActive ? Colors.white : Colors.white.withOpacity(0.9),
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsSwitchRow({
+    required IconData icon,
+    required String title,
+    required bool value,
+    required Color activeColor,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(icon, color: value ? activeColor : Colors.white70, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+          Switch(
+            value: value,
+            activeColor: activeColor,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- 2. SUBTITLES POPOVER (Matches Image 3 100%) ---
+  Widget _buildSubtitlesPopover(PlayerProvider player, LocaleProvider locale) {
+    final isArabic = locale.isArabic;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141418).withOpacity(0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.14), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.7),
+                blurRadius: 30,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header: Subtitles & Customize
+              Row(
+                children: [
+                  Text(
+                    isArabic ? 'الترجمة' : 'Subtitles',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  InkWell(
+                    onTap: () {
+                      setState(() => _showSubCustomize = !_showSubCustomize);
+                      _onUserActivity();
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      child: Text(
+                        _showSubCustomize
+                            ? (isArabic ? 'تم' : 'Done')
+                            : (isArabic ? 'تخصيص' : 'Customize'),
+                        style: TextStyle(
+                          color: _showSubCustomize ? AppColors.netflixRed : Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 10),
 
-                // 6. Seamless Next Episode Prompt Card (Bottom Right)
-                if (player.nextEpisode != null && (player.showNextEpisodePrompt || player.isNearEnd))
-                  Positioned(
-                    bottom: 95,
-                    right: 36,
-                    child: Container(
-                      width: 320,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF181818).withOpacity(0.95),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.netflixRed.withOpacity(0.7), width: 1.5),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black87, blurRadius: 20, offset: Offset(0, 6)),
+              // Customize View (Font size, position, colors)
+              if (_showSubCustomize) ...[
+                Expanded(
+                  child: ListView(
+                    children: [
+                      // Font size
+                      Text(
+                        '${isArabic ? "حجم الخط" : "Font Size"} (${player.subtitleFontSize.round()}px)',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      SliderTheme(
+                        data: const SliderThemeData(
+                          trackHeight: 3,
+                          thumbColor: AppColors.netflixRed,
+                          activeTrackColor: AppColors.netflixRed,
+                          inactiveTrackColor: Colors.white24,
+                        ),
+                        child: Slider(
+                          value: player.subtitleFontSize,
+                          min: 18.0,
+                          max: 48.0,
+                          divisions: 15,
+                          onChanged: (val) {
+                            player.setSubtitleFontSize(val);
+                            _onUserActivity();
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Position from bottom
+                      Text(
+                        '${isArabic ? "ارتفاع الترجمة عن الأسفل" : "Subtitle Position"} (${player.subtitleBottomPadding.round()}px)',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      SliderTheme(
+                        data: const SliderThemeData(
+                          trackHeight: 3,
+                          thumbColor: AppColors.netflixRed,
+                          activeTrackColor: AppColors.netflixRed,
+                          inactiveTrackColor: Colors.white24,
+                        ),
+                        child: Slider(
+                          value: player.subtitleBottomPadding,
+                          min: 20.0,
+                          max: 260.0,
+                          divisions: 24,
+                          onChanged: (val) {
+                            player.setSubtitleBottomPadding(val);
+                            _onUserActivity();
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Colors
+                      Text(
+                        isArabic ? 'لون الخط' : 'Font Color',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          _buildColorChip(player, Colors.white, 'White'),
+                          const SizedBox(width: 8),
+                          _buildColorChip(player, const Color(0xFFFFEB3B), 'Yellow'),
+                          const SizedBox(width: 8),
+                          _buildColorChip(player, const Color(0xFF00E5FF), 'Cyan'),
+                          const SizedBox(width: 8),
+                          _buildColorChip(player, const Color(0xFF69F0AE), 'Green'),
                         ],
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: 12),
+
+                      // Background transparent toggle
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isArabic ? 'خلفية شفافة' : 'Transparent Background',
+                            style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          Switch(
+                            value: player.subtitleTransparentBackground,
+                            activeColor: AppColors.netflixRed,
+                            onChanged: (val) {
+                              player.setSubtitleTransparentBackground(val);
+                              _onUserActivity();
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                // Option 1: Off (with green checkmark if no subtitle active)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(
+                    isArabic ? 'إيقاف الترجمة' : 'Off',
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  trailing: player.selectedSubtitle == null
+                      ? const Icon(Icons.check_circle_rounded, color: Color(0xFF76B900), size: 20)
+                      : null,
+                  onTap: () {
+                    player.disableSubtitles();
+                    _onUserActivity();
+                  },
+                ),
+
+                // Option 2: Upload subtitle file (with upload icon)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(
+                    isArabic ? 'رفع ملف ترجمة' : 'Upload subtitle file',
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                  trailing: const Icon(Icons.upload_rounded, color: Colors.white70, size: 20),
+                  onTap: () {
+                    player.pickAndLoadLocalSubtitle();
+                    _onUserActivity();
+                  },
+                ),
+
+                // Option 3: Sync subtitle to audio
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          isArabic ? 'مزامنة الترجمة' : 'Sync subtitle to audio',
+                          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => player.adjustSubtitleDelay(-0.5),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('-0.5s', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Text(
+                          player.subtitleDelay == 0.0
+                              ? '0.0s'
+                              : '${player.subtitleDelay > 0 ? "+" : ""}${player.subtitleDelay.toStringAsFixed(1)}s',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => player.adjustSubtitleDelay(0.5),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('+0.5s', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Divider(color: Colors.white12, height: 16),
+
+                // Search Bar for OpenSubtitles
+                Container(
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white12, width: 0.8),
+                  ),
+                  child: TextField(
+                    controller: _subSearchController,
+                    focusNode: _searchFocusNode,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText: isArabic ? 'بحث في الترجمات...' : 'Search',
+                      hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                      prefixIcon: const Icon(Icons.search_rounded, color: Colors.white54, size: 18),
+                      suffixIcon: _subSearchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, color: Colors.white54, size: 16),
+                              onPressed: () {
+                                _subSearchController.clear();
+                                setState(() {});
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                    ),
+                    onSubmitted: (query) {
+                      if (query.trim().isNotEmpty) {
+                        player.searchOnlineSubtitles(query, lang: _selectedSubLang);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Subtitles List (Local & Online)
+                Expanded(
+                  child: ListView(
+                    children: [
+                      // Local / Embedded tracks
+                      if (player.subtitles.isNotEmpty) ...[
+                        Text(
+                          isArabic ? 'الترجمات المحلية المكتشفة' : 'Local Tracks',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        ...player.subtitles.map((track) {
+                          final isSelected = player.selectedSubtitle?.path == track.path;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.subtitles_outlined,
+                              color: isSelected ? const Color(0xFF76B900) : Colors.white54,
+                              size: 18,
+                            ),
+                            title: Text(
+                              track.title,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.white70,
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: isSelected
+                                ? const Icon(Icons.check_circle_rounded, color: Color(0xFF76B900), size: 18)
+                                : null,
+                            onTap: () {
+                              player.selectSubtitle(track);
+                              _onUserActivity();
+                            },
+                          );
+                        }),
+                      ],
+
+                      // Online OpenSubtitles search results
+                      if (player.isSearchingOnlineSubtitles)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(color: AppColors.netflixRed, strokeWidth: 2),
+                            ),
+                          ),
+                        )
+                      else if (player.onlineSubtitles.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          isArabic ? 'نتائج البحث أونلاين' : 'Online Results (OpenSubtitles)',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        ...player.onlineSubtitles.map((onlineSub) {
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              onlineSub.releaseName.isNotEmpty ? onlineSub.releaseName : onlineSub.fileName,
+                              style: const TextStyle(color: Colors.white, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${onlineSub.languageName} • ${onlineSub.rating ?? 0.0} ★',
+                              style: const TextStyle(color: Colors.white38, fontSize: 10),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.download_rounded, color: AppColors.netflixRed, size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () async {
+                                await player.downloadAndApplyOnlineSubtitle(onlineSub);
+                                _onUserActivity();
+                              },
+                            ),
+                          );
+                        }),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorChip(PlayerProvider player, Color color, String name) {
+    final isSelected = player.subtitleColor.value == color.value;
+    return InkWell(
+      onTap: () {
+        player.setSubtitleColor(color);
+        _onUserActivity();
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.transparent,
+            width: 2.5,
+          ),
+          boxShadow: isSelected
+              ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 1)]
+              : null,
+        ),
+      ),
+    );
+  }
+
+  // --- 3. HORIZONTAL EPISODE DRAWER (Matches Image 4 100%) ---
+  Widget _buildEpisodesDrawer(PlayerProvider player, bool isArabic) {
+    final allEpisodes = player.seriesEpisodes;
+    final seasons = allEpisodes.map((e) => e.seasonNumber ?? 1).toSet().toList()..sort();
+    final currentSeason = seasons.contains(_selectedSeason) ? _selectedSeason : (seasons.isNotEmpty ? seasons.first : 1);
+    final seasonEpisodes = allEpisodes.where((e) => (e.seasonNumber ?? 1) == currentSeason).toList();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF101014).withOpacity(0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.14), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.7),
+                blurRadius: 30,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top Drawer Bar: Season selector dropdown + Episode count + Close
+              Row(
+                children: [
+                  PopupMenuButton<int>(
+                    onSelected: (s) => setState(() => _selectedSeason = s),
+                    color: const Color(0xFF1E1E24),
+                    itemBuilder: (ctx) => seasons.map((s) {
+                      return PopupMenuItem<int>(
+                        value: s,
+                        child: Text(
+                          '${isArabic ? "الموسم" : "Season"} $s',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      );
+                    }).toList(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white12, width: 1),
+                      ),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.skip_next_rounded, color: AppColors.netflixRed, size: 22),
-                              const SizedBox(width: 8),
-                              Text(
-                                isArabic ? 'الحلقة التالية' : 'Next Episode',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const Spacer(),
-                              if (player.showNextEpisodePrompt)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.netflixRed.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '${player.nextEpisodeCountdown}s',
-                                    style: const TextStyle(
-                                      color: AppColors.netflixRed,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
                           Text(
-                            player.nextEpisode!.title,
+                            '${isArabic ? "الموسم" : "Season"} $currentSeason',
                             style: const TextStyle(
-                              color: Colors.white70,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              fontWeight: FontWeight.w500,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () {
-                                    player.playNextEpisode();
-                                    _onUserActivity();
-                                  },
-                                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                                  label: Text(isArabic ? 'تشغيل الآن' : 'Play Now'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              TextButton(
-                                onPressed: () {
-                                  player.cancelNextEpisodeCountdown();
-                                  _onUserActivity();
-                                },
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.white60,
-                                ),
-                                child: Text(isArabic ? 'إلغاء' : 'Cancel'),
-                              ),
-                            ],
-                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 16),
                         ],
                       ),
                     ),
                   ),
-
-                // 7. Floating Menu Pop Out (Compact Floating Card above bottom bar)
-                if (_showMenu)
-                  Positioned(
-                    bottom: 74,
-                    right: 28,
-                    width: 390,
-                    height: 490,
-                    child: _buildPopOutMenu(player, locale),
+                  const SizedBox(width: 10),
+                  Text(
+                    '• ${seasonEpisodes.length} ${isArabic ? "حلقة" : "Episodes"}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-              ],
-            ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => setState(() => _showEpisodesDrawer = false),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Horizontal Cards Row with Chevrons
+              Expanded(
+                child: Row(
+                  children: [
+                    // Left Chevron Scroll Button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 28),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        _episodeScrollController.animateTo(
+                          (_episodeScrollController.offset - 300).clamp(0, _episodeScrollController.position.maxScrollExtent),
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOut,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 6),
+
+                    // Cards List
+                    Expanded(
+                      child: ListView.builder(
+                        controller: _episodeScrollController,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: seasonEpisodes.length,
+                        itemBuilder: (context, idx) {
+                          final ep = seasonEpisodes[idx];
+                          final isCurrent = ep.filePath == player.currentMedia?.filePath;
+
+                          return InkWell(
+                            onTap: () {
+                              player.playMedia(ep);
+                              _onUserActivity();
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              width: 210,
+                              margin: const EdgeInsets.only(right: 12),
+                              decoration: BoxDecoration(
+                                color: isCurrent
+                                    ? Colors.white.withOpacity(0.12)
+                                    : Colors.white.withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isCurrent
+                                      ? const Color(0xFF76B900)
+                                      : Colors.white.withOpacity(0.08),
+                                  width: isCurrent ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 16:9 Thumbnail
+                                  ClipRRect(
+                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+                                    child: Stack(
+                                      children: [
+                                        SizedBox(
+                                          height: 95,
+                                          width: double.infinity,
+                                          child: (ep.backdropUrl != null || ep.posterUrl != null)
+                                              ? Image.network(
+                                                  ep.backdropUrl ?? ep.posterUrl!,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
+                                                )
+                                              : _buildEpisodePlaceholder(),
+                                        ),
+                                        // Badge over thumbnail
+                                        Positioned(
+                                          top: 6,
+                                          left: 6,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                            decoration: BoxDecoration(
+                                              color: isCurrent
+                                                  ? const Color(0xFF76B900)
+                                                  : Colors.black.withOpacity(0.75),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              isCurrent
+                                                  ? 'S${ep.seasonNumber ?? currentSeason}E${ep.episodeNumber ?? (idx + 1)} - Now Playing'
+                                                  : 'S${ep.seasonNumber ?? currentSeason}E${ep.episodeNumber ?? (idx + 1)}',
+                                              style: TextStyle(
+                                                color: isCurrent ? Colors.black : Colors.white,
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Details below thumbnail
+                                  Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          ep.title,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          (ep.overview != null && ep.overview!.isNotEmpty)
+                                              ? ep.overview!
+                                              : (isArabic ? 'انقر للتشغيل والمشاهدة' : 'Click to stream episode'),
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.6),
+                                            fontSize: 10,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+
+                    // Right Chevron Scroll Button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 28),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        _episodeScrollController.animateTo(
+                          (_episodeScrollController.offset + 300).clamp(0, _episodeScrollController.position.maxScrollExtent),
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOut,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodePlaceholder() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF232332),
+            Colors.black.withOpacity(0.9),
+          ],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.movie_creation_outlined, color: Colors.white24, size: 28),
       ),
     );
   }
@@ -1420,965 +2306,6 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
             ),
           );
         },
-      ),
-    );
-  }
-
-  // --- Floating Pop Out Menu Card ---
-  Widget _buildPopOutMenu(PlayerProvider player, LocaleProvider locale) {
-    final isArabic = locale.isArabic;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1B1B1B).withOpacity(0.95),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withOpacity(0.18), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.7),
-                blurRadius: 28,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with Title & Close button
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 10, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      isArabic ? 'إعدادات المشغل' : 'Player Settings',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        setState(() => _showMenu = false);
-                        _searchFocusNode.unfocus();
-                        _onUserActivity();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              // Segmented Tab Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      _buildMenuTabItem(
-                        title: isArabic ? 'الترجمة' : 'Subtitles',
-                        icon: Icons.subtitles_rounded,
-                        index: 0,
-                      ),
-                      _buildMenuTabItem(
-                        title: isArabic ? 'الصوت' : 'Audio',
-                        icon: Icons.audiotrack_rounded,
-                        index: 1,
-                      ),
-                      _buildMenuTabItem(
-                        title: isArabic ? 'السرعة' : 'Speed',
-                        icon: Icons.speed_rounded,
-                        index: 2,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Divider(color: Colors.white12, height: 1),
-
-              // Tab Content View
-              Expanded(
-                child: IndexedStack(
-                  index: _activeMenuTab,
-                  children: [
-                    _buildSubtitlesTab(player, locale),
-                    _buildAudioTab(player, locale),
-                    _buildSpeedTab(player, locale),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMenuTabItem({required String title, required IconData icon, required int index}) {
-    final isSelected = _activeMenuTab == index;
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          setState(() => _activeMenuTab = index);
-          _onUserActivity();
-        },
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 7),
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.netflixRed : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: isSelected ? Colors.white : Colors.white60, size: 15),
-              const SizedBox(width: 5),
-              Text(
-                title,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Subtitles Tab Content ---
-  Widget _buildSubtitlesTab(PlayerProvider player, LocaleProvider locale) {
-    final isArabic = locale.isArabic;
-
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        // Subtitles Master Switch (Off / On)
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          leading: Icon(
-            player.selectedSubtitle != null ? Icons.subtitles_rounded : Icons.subtitles_off_rounded,
-            color: player.selectedSubtitle != null ? AppColors.netflixRed : Colors.white38,
-            size: 20,
-          ),
-          title: Text(
-            isArabic ? 'إيقاف الترجمة' : 'Off (No Subtitles)',
-            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          trailing: player.selectedSubtitle == null
-              ? const Icon(Icons.check_rounded, color: AppColors.netflixRed, size: 20)
-              : null,
-          onTap: () {
-            player.disableSubtitles();
-            _onUserActivity();
-          },
-        ),
-        const Divider(color: Colors.white12, height: 16),
-
-        // 1. Vertical Subtitle Height (ارتفاع الترجمة عن أسفل الشاشة)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'ارتفاع الترجمة (عن الأسفل)' : 'Subtitle Height (Position)',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${player.subtitleBottomPadding.round()}px',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            const Icon(Icons.vertical_align_bottom_rounded, color: Colors.white54, size: 18),
-            Expanded(
-              child: SliderTheme(
-                data: const SliderThemeData(
-                  trackHeight: 3,
-                  thumbColor: AppColors.netflixRed,
-                  activeTrackColor: AppColors.netflixRed,
-                  inactiveTrackColor: Colors.white24,
-                ),
-                child: Slider(
-                  value: player.subtitleBottomPadding,
-                  min: 20.0,
-                  max: 260.0,
-                  divisions: 24,
-                  onChanged: (val) {
-                    player.setSubtitleBottomPadding(val);
-                    _onUserActivity();
-                  },
-                ),
-              ),
-            ),
-            const Icon(Icons.vertical_align_top_rounded, color: Colors.white54, size: 18),
-          ],
-        ),
-        const SizedBox(height: 6),
-
-        // 2. Subtitle Background Transparency (خلفية شفافة / داكنة)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'خلفية الخط' : 'Subtitle Background',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              children: [
-                _buildBgOption(
-                  label: isArabic ? 'شفافة' : 'Transparent',
-                  isSelected: player.subtitleTransparentBackground,
-                  onTap: () {
-                    player.setSubtitleTransparentBackground(true);
-                    _onUserActivity();
-                  },
-                ),
-                const SizedBox(width: 8),
-                _buildBgOption(
-                  label: isArabic ? 'داكنة' : 'Dark Box',
-                  isSelected: !player.subtitleTransparentBackground,
-                  onTap: () {
-                    player.setSubtitleTransparentBackground(false);
-                    _onUserActivity();
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-
-        // 3. Subtitle Font Size (حجم الخط)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'حجم الخط' : 'Font Size',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${player.subtitleFontSize.round()}px',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        SliderTheme(
-          data: const SliderThemeData(
-            trackHeight: 3,
-            thumbColor: AppColors.netflixRed,
-            activeTrackColor: AppColors.netflixRed,
-            inactiveTrackColor: Colors.white24,
-          ),
-          child: Slider(
-            value: player.subtitleFontSize,
-            min: 18.0,
-            max: 48.0,
-            divisions: 15,
-            onChanged: (val) {
-              player.setSubtitleFontSize(val);
-              _onUserActivity();
-            },
-          ),
-        ),
-        const SizedBox(height: 6),
-
-        // 4. Subtitle Font Color (لون الخط)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'لون الخط' : 'Font Color',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              children: [
-                _buildColorOption(player, Colors.white, 'White'),
-                const SizedBox(width: 8),
-                _buildColorOption(player, const Color(0xFFFFEB3B), 'Yellow'),
-                const SizedBox(width: 8),
-                _buildColorOption(player, const Color(0xFF00E5FF), 'Cyan'),
-                const SizedBox(width: 8),
-                _buildColorOption(player, const Color(0xFF69F0AE), 'Green'),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        // 5. Subtitle Sync Offset (-0.5s / Reset / +0.5s)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'مزامنة التوقيت (Sync)' : 'Subtitle Sync',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              children: [
-                OutlinedButton(
-                  onPressed: () => player.adjustSubtitleDelay(-0.5),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: const Text('-0.5s', style: TextStyle(fontSize: 11)),
-                ),
-                const SizedBox(width: 6),
-                OutlinedButton(
-                  onPressed: () => player.resetSubtitleDelay(),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: Text(
-                    player.subtitleDelay == 0.0 ? '0.0s' : '${player.subtitleDelay > 0 ? '+' : ''}${player.subtitleDelay}s',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                OutlinedButton(
-                  onPressed: () => player.adjustSubtitleDelay(0.5),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: const Text('+0.5s', style: TextStyle(fontSize: 11)),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const Divider(color: Colors.white12, height: 18),
-
-        // Detected Local Subtitles
-        if (player.subtitles.isNotEmpty) ...[
-          Text(
-            isArabic ? 'ملفات الترجمة المتوفرة' : 'Available Subtitles',
-            style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          ...player.subtitles.map((sub) {
-            final isSelected = player.selectedSubtitle?.path == sub.path;
-            return ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                Icons.subtitles_outlined,
-                color: isSelected ? AppColors.netflixRed : Colors.white54,
-                size: 18,
-              ),
-              title: Text(
-                sub.title,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: isSelected ? const Icon(Icons.check_rounded, color: AppColors.netflixRed, size: 18) : null,
-              onTap: () {
-                player.selectSubtitle(sub);
-                _onUserActivity();
-              },
-            );
-          }),
-          const SizedBox(height: 8),
-        ],
-
-        // Browse Local File Button
-        OutlinedButton.icon(
-          onPressed: () {
-            player.pickAndLoadLocalSubtitle();
-            _onUserActivity();
-          },
-          icon: const Icon(Icons.folder_open_rounded, size: 16),
-          label: Text(
-            isArabic ? 'فتح ملف ترجمة (.srt / .vtt)' : 'Load Subtitle File (.srt/.vtt)',
-            style: const TextStyle(fontSize: 12),
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white,
-            side: const BorderSide(color: Colors.white24),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-          ),
-        ),
-
-        const SizedBox(height: 14),
-        const Divider(color: Colors.white12, height: 1),
-        const SizedBox(height: 10),
-
-        // Online Subtitles Search Bar with Clear Button & Dedicated FocusNode
-        Text(
-          isArabic ? 'البحث أونلاين (OpenSubtitles)' : 'Search Online Subtitles',
-          style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _subSearchController,
-                focusNode: _searchFocusNode,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: isArabic ? 'اسم الفيلم أو الحلقة...' : 'Title or S01E01...',
-                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 11),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.06),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: BorderSide.none),
-                  suffixIcon: _subSearchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, size: 16, color: Colors.white54),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            _subSearchController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : null,
-                ),
-                onChanged: (_) {
-                  setState(() {});
-                },
-                onSubmitted: (q) {
-                  player.searchOnlineSubtitles(q, lang: _selectedSubLang);
-                  _onUserActivity();
-                },
-              ),
-            ),
-            const SizedBox(width: 6),
-            DropdownButton<String>(
-              value: _selectedSubLang,
-              dropdownColor: const Color(0xFF222222),
-              underline: const SizedBox(),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              items: const [
-                DropdownMenuItem(value: 'ara', child: Text('عربي')),
-                DropdownMenuItem(value: 'eng', child: Text('Eng')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() => _selectedSubLang = val);
-                  player.searchOnlineSubtitles(_subSearchController.text, lang: val);
-                  _onUserActivity();
-                }
-              },
-            ),
-            const SizedBox(width: 6),
-            ElevatedButton(
-              onPressed: () {
-                player.searchOnlineSubtitles(_subSearchController.text, lang: _selectedSubLang);
-                _onUserActivity();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.netflixRed,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                minimumSize: const Size(36, 36),
-              ),
-              child: const Icon(Icons.search_rounded, color: Colors.white, size: 16),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 10),
-
-        // Online Subtitles Results
-        if (player.isSearchingOnlineSubtitles)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(
-              child: CircularProgressIndicator(color: AppColors.netflixRed, strokeWidth: 2.5),
-            ),
-          )
-        else if (player.onlineSubtitles.isNotEmpty)
-          ...player.onlineSubtitles.map((onlineSub) {
-            return Card(
-              color: Colors.white.withOpacity(0.05),
-              margin: const EdgeInsets.only(bottom: 6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-              child: ListTile(
-                dense: true,
-                title: Text(
-                  onlineSub.fileName,
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${onlineSub.languageName} • ⬇ ${onlineSub.downloads} downloads',
-                  style: const TextStyle(color: Colors.white54, fontSize: 10),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.download_rounded, color: AppColors.netflixRed, size: 18),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () async {
-                    final ok = await player.downloadAndApplyOnlineSubtitle(onlineSub);
-                    if (ok && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(isArabic ? 'تم تحميل وتفعيل الترجمة' : 'Subtitle downloaded & applied!'),
-                          backgroundColor: Colors.green[800],
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  },
-                ),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
-  Widget _buildBgOption({required String label, required bool isSelected, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.netflixRed : Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white70,
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildColorOption(PlayerProvider player, Color color, String name) {
-    final isSelected = player.subtitleColor == color;
-    return GestureDetector(
-      onTap: () {
-        player.setSubtitleColor(color);
-        _onUserActivity();
-      },
-      child: Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: isSelected ? Colors.red : Colors.white30,
-            width: isSelected ? 2.5 : 1,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Audio Tracks Tab Content ---
-  Widget _buildAudioTab(PlayerProvider player, LocaleProvider locale) {
-    final isArabic = locale.isArabic;
-
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        // 1. Dialogue Boost & Night Mode Toggle Card
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: player.isDialogueBoostActive
-                ? const Color(0xFF00E5FF).withOpacity(0.12)
-                : Colors.white.withOpacity(0.04),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: player.isDialogueBoostActive
-                  ? const Color(0xFF00E5FF).withOpacity(0.7)
-                  : Colors.white12,
-              width: 1.2,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.graphic_eq_rounded,
-                color: player.isDialogueBoostActive ? const Color(0xFF00E5FF) : Colors.white60,
-                size: 24,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isArabic ? 'مضخم الحوارات ونمط المشاهدة الليلية' : 'Dialogue Boost & Night Mode',
-                      style: TextStyle(
-                        color: player.isDialogueBoostActive ? Colors.white : Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      isArabic
-                          ? 'موازنة الانفجارات تلقائياً ورفع نقاء همس وكلام الممثلين'
-                          : 'Normalizes loud audio & boosts whisper speech clarity',
-                      style: const TextStyle(color: Colors.white54, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: player.isDialogueBoostActive,
-                activeColor: const Color(0xFF00E5FF),
-                onChanged: (_) {
-                  player.toggleDialogueBoost();
-                  _onUserActivity();
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // 2. Audio Delay / Sync Offset
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              isArabic ? 'مزامنة الصوت (Audio Sync)' : 'Audio Sync Offset',
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              children: [
-                OutlinedButton(
-                  onPressed: () => player.adjustAudioDelay(-0.1),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: const Text('-100ms', style: TextStyle(fontSize: 11)),
-                ),
-                const SizedBox(width: 6),
-                OutlinedButton(
-                  onPressed: () => player.resetAudioDelay(),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: Text(
-                    player.audioDelay == 0.0
-                        ? '0.0s'
-                        : '${player.audioDelay > 0 ? '+' : ''}${player.audioDelay.toStringAsFixed(2)}s',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                OutlinedButton(
-                  onPressed: () => player.adjustAudioDelay(0.1),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(40, 28),
-                  ),
-                  child: const Text('+100ms', style: TextStyle(fontSize: 11)),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        SliderTheme(
-          data: const SliderThemeData(
-            trackHeight: 3,
-            thumbColor: Color(0xFF00E5FF),
-            activeTrackColor: Color(0xFF00E5FF),
-            inactiveTrackColor: Colors.white24,
-          ),
-          child: Slider(
-            value: player.audioDelay,
-            min: -2.0,
-            max: 2.0,
-            divisions: 40,
-            onChanged: (val) {
-              player.setAudioDelay(val);
-              _onUserActivity();
-            },
-          ),
-        ),
-
-        const Divider(color: Colors.white12, height: 20),
-
-        // 3. Audio Tracks Section
-        Text(
-          isArabic ? 'المسارات الصوتية (Audio Tracks)' : 'Available Audio Tracks',
-          style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-
-        if (player.audioTracks.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              isArabic ? 'المسار الصوتي الافتراضي نشط' : 'Default audio track is active',
-              style: const TextStyle(color: Colors.white38, fontSize: 12),
-            ),
-          )
-        else
-          ...player.audioTracks.asMap().entries.map((entry) {
-            final index = entry.key;
-            final track = entry.value;
-            final isSelected = player.selectedAudioTrack?.id == track.id;
-            final title = track.title ?? track.language ?? 'Audio Track #${index + 1}';
-
-            return ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                Icons.audiotrack_rounded,
-                color: isSelected ? AppColors.netflixRed : Colors.white38,
-                size: 20,
-              ),
-              title: Text(
-                title,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-              trailing: isSelected ? const Icon(Icons.check_rounded, color: AppColors.netflixRed, size: 18) : null,
-              onTap: () {
-                player.selectAudioTrack(track);
-                _onUserActivity();
-              },
-            );
-          }),
-      ],
-    );
-  }
-
-  // --- Playback Speed Tab Content ---
-  Widget _buildSpeedTab(PlayerProvider player, LocaleProvider locale) {
-    final isArabic = locale.isArabic;
-    final speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        Text(
-          isArabic ? 'سرعة العرض (مع الحفاظ على نبرة الصوت)' : 'Playback Speed (Pitch Corrected)',
-          style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        ...speeds.map((s) {
-          final isSelected = player.playbackRate == s;
-          return ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              Icons.speed_rounded,
-              color: isSelected ? AppColors.netflixRed : Colors.white38,
-              size: 20,
-            ),
-            title: Text(
-              s == 1.0 ? (isArabic ? '1.0x (السرعة الطبيعية)' : '1.0x (Normal)') : '${s}x',
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-            trailing: isSelected ? const Icon(Icons.check_rounded, color: AppColors.netflixRed, size: 18) : null,
-            onTap: () {
-              player.setPlaybackRate(s);
-              _onUserActivity();
-            },
-          );
-        }),
-        if (player.hasRtxGpu) ...[
-          const SizedBox(height: 14),
-          const Divider(color: Colors.white12, height: 1),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF76B900).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.bolt_rounded, color: Color(0xFF76B900), size: 18),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isArabic ? 'NVIDIA RTX Super Resolution' : 'NVIDIA RTX Video Super Resolution',
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isArabic ? 'معالجة ومضاعفة الجودة بالذكاء الاصطناعي (Tensor Cores)' : 'AI Real-time Upscaling via Tensor Cores',
-                      style: const TextStyle(color: Colors.white54, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: player.isRtxVsrEnabled,
-                activeColor: const Color(0xFF76B900),
-                onChanged: (val) {
-                  player.setRtxVsrEnabled(val);
-                  _onUserActivity();
-                },
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  // --- Helper UI Widgets ---
-  Widget _buildIconButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onPressed,
-    Color color = Colors.white,
-    double size = 24,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            onPressed();
-            _onUserActivity();
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Icon(icon, color: color, size: size),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickChip({
-    required String label,
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          onPressed();
-          _onUserActivity();
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white24, width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCenterCircleButton({
-    required IconData icon,
-    required double size,
-    required double iconSize,
-    required String tooltip,
-    required VoidCallback onPressed,
-    bool isPrimary = false,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            onPressed();
-            _onUserActivity();
-          },
-          borderRadius: BorderRadius.circular(size / 2),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: isPrimary ? AppColors.netflixRed : Colors.black.withOpacity(0.6),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isPrimary ? AppColors.netflixRed : Colors.white.withOpacity(0.35),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: (isPrimary ? AppColors.netflixRed : Colors.black).withOpacity(0.4),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Icon(icon, color: Colors.white, size: iconSize),
-          ),
-        ),
       ),
     );
   }
