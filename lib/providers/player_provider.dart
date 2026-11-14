@@ -10,6 +10,13 @@ import '../core/services/storage_service.dart';
 import '../core/services/subtitle_service.dart';
 import '../core/services/windows_wakelock.dart';
 
+class MediaChapter {
+  final String title;
+  final Duration time;
+
+  const MediaChapter({required this.title, required this.time});
+}
+
 class PlayerProvider extends ChangeNotifier {
   static const String _volumePrefKey = 'cinema_stream_saved_volume';
 
@@ -31,15 +38,24 @@ class PlayerProvider extends ChangeNotifier {
   LocalSubtitleTrack? _selectedSubtitle;
   bool _isSearchingOnlineSubtitles = false;
   List<OnlineSubtitle> _onlineSubtitles = [];
+  String? _autoSubtitleNotification;
   double _subtitleDelay = 0.0; // Seconds offset
   double _subtitleFontSize = 26.0; // Flutter subtitle font size
   double _subtitleBottomPadding = 85.0; // Distance from bottom (height adjustment)
   bool _subtitleTransparentBackground = true; // Transparent vs dark box
   Color _subtitleColor = Colors.white;
 
-  // Audio Tracks
+  // Audio Tracks & Enhancement
   List<AudioTrack> _audioTracks = [];
   AudioTrack? _selectedAudioTrack;
+  bool _isDialogueBoostActive = false;
+  double _audioDelay = 0.0; // Seconds offset
+
+  // Ambient Glow / Ambilight
+  bool _isAmbientGlowActive = true;
+
+  // Media Chapters
+  final List<MediaChapter> _chapters = [];
 
   // NVIDIA RTX Video Super Resolution (VSR)
   bool _isRtxVsrEnabled = true;
@@ -69,6 +85,7 @@ class PlayerProvider extends ChangeNotifier {
   LocalSubtitleTrack? get selectedSubtitle => _selectedSubtitle;
   bool get isSearchingOnlineSubtitles => _isSearchingOnlineSubtitles;
   List<OnlineSubtitle> get onlineSubtitles => _onlineSubtitles;
+  String? get autoSubtitleNotification => _autoSubtitleNotification;
   double get subtitleDelay => _subtitleDelay;
   double get subtitleFontSize => _subtitleFontSize;
   double get subtitleBottomPadding => _subtitleBottomPadding;
@@ -77,6 +94,23 @@ class PlayerProvider extends ChangeNotifier {
 
   List<AudioTrack> get audioTracks => _audioTracks;
   AudioTrack? get selectedAudioTrack => _selectedAudioTrack;
+  bool get isDialogueBoostActive => _isDialogueBoostActive;
+  double get audioDelay => _audioDelay;
+  bool get isAmbientGlowActive => _isAmbientGlowActive;
+  List<MediaChapter> get chapters => _chapters;
+
+  MediaChapter? getChapterAt(Duration time) {
+    if (_chapters.isEmpty) return null;
+    MediaChapter? matched;
+    for (final ch in _chapters) {
+      if (time >= ch.time) {
+        matched = ch;
+      } else {
+        break;
+      }
+    }
+    return matched;
+  }
 
   bool get isRtxVsrEnabled => _isRtxVsrEnabled;
   bool get isRtxVsrActive => _isRtxVsrActive;
@@ -115,6 +149,62 @@ class PlayerProvider extends ChangeNotifier {
     try {
       await (_player.platform as dynamic).command(['set', property, value]);
     } catch (_) {}
+  }
+
+  Future<String?> getMpvProperty(String property) async {
+    try {
+      return await (_player.platform as dynamic).getProperty(property);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> toggleDialogueBoost() async {
+    _isDialogueBoostActive = !_isDialogueBoostActive;
+    if (_isDialogueBoostActive) {
+      // Dynamic audio normalizer: raises low dialogue volume, compresses loud blasts smoothly
+      await setMpvProperty('af', 'lavfi=[dynaudnorm=f=150:g=15:m=10:p=0.95]');
+    } else {
+      await setMpvProperty('af', '');
+    }
+    notifyListeners();
+  }
+
+  Future<void> setAudioDelay(double delaySeconds) async {
+    _audioDelay = double.parse(delaySeconds.clamp(-5.0, 5.0).toStringAsFixed(2));
+    await setMpvProperty('audio-delay', _audioDelay.toStringAsFixed(3));
+    notifyListeners();
+  }
+
+  Future<void> adjustAudioDelay(double deltaSeconds) async {
+    await setAudioDelay(_audioDelay + deltaSeconds);
+  }
+
+  Future<void> resetAudioDelay() async {
+    await setAudioDelay(0.0);
+  }
+
+  void toggleAmbientGlow() {
+    _isAmbientGlowActive = !_isAmbientGlowActive;
+    notifyListeners();
+  }
+
+  Future<void> _loadChapters() async {
+    _chapters.clear();
+    try {
+      final countStr = await getMpvProperty('chapters');
+      final count = int.tryParse(countStr ?? '0') ?? 0;
+      for (int i = 0; i < count; i++) {
+        final title = await getMpvProperty('chapter-list/$i/title');
+        final timeStr = await getMpvProperty('chapter-list/$i/time');
+        final timeSec = double.tryParse(timeStr ?? '0') ?? 0.0;
+        _chapters.add(MediaChapter(
+          title: (title != null && title.trim().isNotEmpty) ? title.trim() : 'Chapter ${i + 1}',
+          time: Duration(milliseconds: (timeSec * 1000).round()),
+        ));
+      }
+    } catch (_) {}
+    notifyListeners();
   }
 
   Future<void> _configureHardwareAcceleration() async {
@@ -276,6 +366,15 @@ class PlayerProvider extends ChangeNotifier {
     // 3. Ensure saved volume is strictly applied
     await _player.setVolume(_isMuted ? 0.0 : _volume);
 
+    // 3.1 Audio Delay & Dialogue Boost initialization
+    _audioDelay = 0.0;
+    if (_isDialogueBoostActive) {
+      await setMpvProperty('af', 'lavfi=[dynaudnorm=f=150:g=15:m=10:p=0.95]');
+    }
+
+    // 3.2 Load MKV/MP4 media chapters
+    Future.delayed(const Duration(milliseconds: 700), () => _loadChapters());
+
     // 4. Secondary resume guarantee: if mpv started at 0 despite startPosition, seek when ready
     if (startPosition != null) {
       StreamSubscription? resumeSub;
@@ -367,6 +466,12 @@ class PlayerProvider extends ChangeNotifier {
         if (downloaded != null && _currentMedia?.filePath == item.filePath) {
           _subtitles.add(downloaded);
           await selectSubtitle(downloaded);
+          _autoSubtitleNotification = 'تم العثور على ترجمة عربية وتفعيلها تلقائياً';
+          notifyListeners();
+          Future.delayed(const Duration(seconds: 4), () {
+            _autoSubtitleNotification = null;
+            notifyListeners();
+          });
         }
       }
     } catch (_) {}

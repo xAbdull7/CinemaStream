@@ -171,6 +171,30 @@ class _HeroBannerState extends State<HeroBanner> {
             },
           ),
 
+          // 1.5 Ambient Glow Bloom behind Title & Synopsis (Apple TV Style)
+          Positioned(
+            left: widget.isArabic ? null : 32,
+            right: widget.isArabic ? 32 : null,
+            bottom: 24,
+            child: IgnorePointer(
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.48,
+                height: 340,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: widget.isArabic ? const Alignment(0.6, 0.3) : const Alignment(-0.6, 0.3),
+                    radius: 0.95,
+                    colors: [
+                      const Color(0xFFE50914).withOpacity(0.09),
+                      const Color(0xFF00E5FF).withOpacity(0.04),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           // 2. Information and CTA buttons for current slide
           Positioned(
             left: widget.isArabic ? null : 64,

@@ -28,7 +28,7 @@ class ReleaseInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.2';
+  static const String currentVersion = '1.1.0';
   static const String repoOwner = 'xAbdull7';
   static const String repoName = 'CinemaStream';
   static const String apiUrl = 'https://api.github.com/repos/$repoOwner/$repoName/releases/latest';

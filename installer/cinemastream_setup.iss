@@ -1,5 +1,5 @@
 #define MyAppName "CinemaStream"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "CinemaStream"
 #define MyAppURL "https://github.com/xAbdull7/CinemaStream"
 #define MyAppExeName "cinema_stream.exe"
