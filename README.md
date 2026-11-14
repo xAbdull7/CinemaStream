@@ -10,6 +10,7 @@
   <p align="center">
     <a href="https://github.com/xAbdull7/CinemaStream/releases/latest"><img src="https://img.shields.io/github/v/release/xAbdull7/CinemaStream?color=E50914&label=Latest%20Version&style=for-the-badge" alt="Release Version" /></a>
     <img src="https://img.shields.io/badge/Platform-Windows%2011%20%7C%2010%20(x64)-0078D4?style=for-the-badge&logo=windows11&logoColor=white" alt="Windows 11" />
+    <img src="https://img.shields.io/badge/NVIDIA-RTX%20VSR%20AI-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="NVIDIA RTX VSR" />
     <img src="https://img.shields.io/badge/Flutter-3.16+-02569B?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter" />
     <img src="https://img.shields.io/badge/Engine-libmpv%20GPU-white?style=for-the-badge" alt="libmpv" />
     <img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge" alt="License" />
@@ -51,6 +52,7 @@ Get the official standalone Windows installer (packaged with Inno Setup 6, ultra
 * **Responsive 16:9 Continue Watching:** Horizontal Netflix-style cards displaying exact remaining watch time, watched progress bar, and custom editing capabilities.
 
 ### ⚡ Professional Video Engine (libmpv)
+* **NVIDIA RTX Video Super Resolution (VSR):** Deep learning AI upscaling running directly on RTX Tensor Cores (`d3d11vpp`). Automatically enhances 720p/1080p content in real-time with an active neon `⚡ RTX VSR` HUD badge and seamless fallback for non-RTX systems.
 * **GPU Hardware Decoding:** Zero CPU strain when playing heavy 4K UHD 60fps HEVC / AV1 / H.264 files via Direct3D11 & Vulkan.
 * **Instant Scrubbing:** Real-time seeking with zero playback stutter and interactive red progress scrubber.
 * **Smart Next Episode:** Floating prompt 15 seconds before episode end to smoothly jump to the next episode.
@@ -178,6 +180,7 @@ The compiled installer will be available at:
 **CinemaStream** هو مشغل وسائط ومكتبة سينمائية متطورة ومصممة خصيصاً لنظام التشغيل ويندوز 11 تجمع بين فخامة تصميم **Liquid Glass (iOS 27)** وسرعة محرك التشغيل الاحترافي **libmpv** مع تسريع العتاد عبر كارت الشاشة (GPU).
 
 ### أبرز الميزات:
+* ⚡ **تحسين الفيديو بالذكاء الاصطناعي (NVIDIA RTX VSR):** دعم كامل لكروت NVIDIA RTX لمضاعفة دقة الفيديوهات 720p/1080p في الوقت الفعلي عبر أنوية Tensor بدقة فائقة وشارة خضراء مميزة.
 * 🎨 **واجهة زجاجية عائمة (Liquid Glass):** تدرجات لونية، ضبابية بصرية عميقة (Blur 35px)، وتصميم يحاكي أحدث معايير الواجهات العالمية.
 * 🎬 **تشغيل فائق الدقة (4K@60fps):** استهلاك شبه معدوم للمعالج بفضل فك التشفير عبر كارت الشاشة.
 * 💬 **نظام الترجمة المتطور:** قراءة الترجمات المحلية وتنزيل الترجمات المتوافقة مباشرة من **OpenSubtitles.org** مع تعديل حجم ولون ومزامنة الخط فورياً.

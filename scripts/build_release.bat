@@ -34,3 +34,4 @@ echo [3/3] Build completed successfully!
 echo Setup file located at: installer\output\CinemaStream_Setup_v1.0.0.exe
 echo.
 pause
+

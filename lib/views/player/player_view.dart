@@ -453,6 +453,49 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
                                     },
                                   ),
                                 ),
+                              if (player.isRtxVsrActive)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  child: Tooltip(
+                                    message: isArabic
+                                        ? 'تقنية تحسين الفيديو بالذكاء الاصطناعي نشطة (NVIDIA RTX VSR)'
+                                        : 'NVIDIA RTX Video Super Resolution Active (AI Upscaled)',
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF76B900).withOpacity(0.18),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: const Color(0xFF76B900).withOpacity(0.85),
+                                          width: 1.2,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF76B900).withOpacity(0.4),
+                                            blurRadius: 10,
+                                            spreadRadius: 1,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.bolt_rounded, color: Color(0xFF76B900), size: 15),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'RTX VSR',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.8,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               _buildQuickChip(
                                 label: '${player.playbackRate}x',
                                 icon: Icons.speed_rounded,
@@ -1651,6 +1694,48 @@ class _PlayerViewState extends State<PlayerView> with SingleTickerProviderStateM
             },
           );
         }),
+        if (player.hasRtxGpu) ...[
+          const SizedBox(height: 14),
+          const Divider(color: Colors.white12, height: 1),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF76B900).withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.bolt_rounded, color: Color(0xFF76B900), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isArabic ? 'NVIDIA RTX Super Resolution' : 'NVIDIA RTX Video Super Resolution',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isArabic ? 'معالجة ومضاعفة الجودة بالذكاء الاصطناعي (Tensor Cores)' : 'AI Real-time Upscaling via Tensor Cores',
+                      style: const TextStyle(color: Colors.white54, fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: player.isRtxVsrEnabled,
+                activeColor: const Color(0xFF76B900),
+                onChanged: (val) {
+                  player.setRtxVsrEnabled(val);
+                  _onUserActivity();
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

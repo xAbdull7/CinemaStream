@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/media_item.dart';
+import '../core/services/gpu_service.dart';
 import '../core/services/storage_service.dart';
 import '../core/services/subtitle_service.dart';
 import '../core/services/windows_wakelock.dart';
@@ -40,6 +41,11 @@ class PlayerProvider extends ChangeNotifier {
   List<AudioTrack> _audioTracks = [];
   AudioTrack? _selectedAudioTrack;
 
+  // NVIDIA RTX Video Super Resolution (VSR)
+  bool _isRtxVsrEnabled = true;
+  bool _isRtxVsrActive = false;
+  bool _hasRtxGpu = false;
+
   // Next Episode Countdown
   bool _showNextEpisodePrompt = false;
   int _nextEpisodeCountdown = 10;
@@ -71,6 +77,10 @@ class PlayerProvider extends ChangeNotifier {
 
   List<AudioTrack> get audioTracks => _audioTracks;
   AudioTrack? get selectedAudioTrack => _selectedAudioTrack;
+
+  bool get isRtxVsrEnabled => _isRtxVsrEnabled;
+  bool get isRtxVsrActive => _isRtxVsrActive;
+  bool get hasRtxGpu => _hasRtxGpu;
 
   bool get showNextEpisodePrompt => _showNextEpisodePrompt;
   int get nextEpisodeCountdown => _nextEpisodeCountdown;
@@ -107,8 +117,41 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void _configureHardwareAcceleration() {
-    setMpvProperty('hwdec', 'auto-safe');
+  Future<void> _configureHardwareAcceleration() async {
+    _hasRtxGpu = await GpuService.hasNvidiaRtx();
+    final prefs = await SharedPreferences.getInstance();
+    _isRtxVsrEnabled = prefs.getBool('rtx_vsr_enabled') ?? true;
+
+    if (_hasRtxGpu && _isRtxVsrEnabled) {
+      try {
+        await setMpvProperty('gpu-api', 'd3d11');
+        await setMpvProperty('hwdec', 'd3d11va');
+        await setMpvProperty('d3d11-adapter', 'NVIDIA');
+        // Direct3D 11 Video Processor with NVIDIA RTX Video Super Resolution
+        await setMpvProperty('vf', 'd3d11vpp=scale=2:scaling-mode=nvidia');
+        _isRtxVsrActive = true;
+      } catch (_) {
+        await setMpvProperty('hwdec', 'auto-safe');
+        await setMpvProperty('vf', '');
+        _isRtxVsrActive = false;
+      }
+    } else {
+      await setMpvProperty('hwdec', 'auto-safe');
+      await setMpvProperty('vf', '');
+      _isRtxVsrActive = false;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setRtxVsrEnabled(bool enable) async {
+    _isRtxVsrEnabled = enable;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('rtx_vsr_enabled', enable);
+    await _configureHardwareAcceleration();
+  }
+
+  Future<void> toggleRtxVsr() async {
+    await setRtxVsrEnabled(!_isRtxVsrEnabled);
   }
 
   Future<void> _loadSavedVolume() async {
@@ -219,6 +262,7 @@ class PlayerProvider extends ChangeNotifier {
         : null;
 
     // 2. Open directly with native start offset and start playback immediately
+    await _configureHardwareAcceleration();
     await _player.open(Media(item.filePath, start: startPosition), play: true);
 
     // 3. Ensure saved volume is strictly applied

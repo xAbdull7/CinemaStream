@@ -2,10 +2,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/gpu_service.dart';
 import '../../core/services/tmdb_service.dart';
 import '../../core/services/update_service.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/locale_provider.dart';
+import '../../providers/player_provider.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -319,6 +321,63 @@ class _SettingsViewState extends State<SettingsView> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
+          ),
+
+          const SizedBox(height: 36),
+          const Divider(color: Colors.white10),
+          const SizedBox(height: 24),
+
+          // Section 7: NVIDIA RTX Video Super Resolution (VSR)
+          Row(
+            children: [
+              const Icon(Icons.bolt_rounded, color: Color(0xFF76B900), size: 24),
+              const SizedBox(width: 8),
+              Text(
+                locale.isArabic ? 'تقنية NVIDIA RTX Video Super Resolution (VSR)' : 'NVIDIA RTX Video Super Resolution (VSR)',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Consumer<PlayerProvider>(
+            builder: (context, player, _) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    player.hasRtxGpu
+                        ? (locale.isArabic
+                            ? 'تم الكشف عن كارت RTX (${GpuService.gpuName ?? 'NVIDIA RTX'}). يتم تطبيق مضاعفة الدقة وتحسين التفاصيل بالذكاء الاصطناعي تلقائياً لجميع الفيديوهات التي تقل عن 4K.'
+                            : 'Detected RTX GPU (${GpuService.gpuName ?? 'NVIDIA RTX'}). AI upscaling via Tensor Cores is automatically applied to all videos under 4K.')
+                        : (locale.isArabic
+                            ? 'لم يتم الكشف عن كارت NVIDIA RTX على هذا الجهاز. يتم استخدام فك التشفير القياسي السريع hwdec=auto-safe.'
+                            : 'No NVIDIA RTX GPU detected. Standard high-performance hardware decoding (hwdec=auto-safe) is in use.'),
+                    style: TextStyle(color: player.hasRtxGpu ? Colors.white70 : Colors.white38),
+                  ),
+                  if (player.hasRtxGpu) ...[
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: player.isRtxVsrEnabled,
+                      activeColor: const Color(0xFF76B900),
+                      title: Text(
+                        locale.isArabic
+                            ? 'تفعيل تحسين الفيديو التلقائي بالذكاء الاصطناعي (RTX VSR)'
+                            : 'Enable AI Video Super Resolution (RTX VSR)',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        locale.isArabic
+                            ? 'مضاعفة الدقة في الوقت الفعلي عبر أنوية Tensor دون استهلاك المعالج'
+                            : 'Real-time 2x AI upscaling via Tensor Cores with zero CPU load',
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onChanged: (val) => player.setRtxVsrEnabled(val),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 40),
         ],
